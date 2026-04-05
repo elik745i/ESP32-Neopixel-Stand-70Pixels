@@ -1,0 +1,105 @@
+#pragma once
+
+#include <Arduino.h>
+#include <IPAddress.h>
+#include <stdint.h>
+
+struct WiFiSettings {
+    String ssid;
+    String password;
+    String apSsid;
+    String apPassword;
+    bool apFallbackEnabled = true;
+    bool useStaticIp = false;
+    String staticIp;
+    String gateway;
+    String subnet;
+    String dns1;
+    String dns2;
+};
+
+struct MqttSettings {
+    String host;
+    uint16_t port = 1883;
+    String username;
+    String password;
+    String clientId;
+    String baseTopic;
+    bool discoveryEnabled = true;
+};
+
+struct OtaSettings {
+    String owner;
+    String repository;
+    String channel;
+    String assetTemplate;
+    String manifestUrl;
+    bool allowInsecureTls = true;
+    bool autoCheck = false;
+};
+
+struct BatterySettings {
+    float calibrationMultiplier = 3.866f;
+    uint32_t updateIntervalMs = 10000;
+    uint16_t movingAverageWindowSize = 10;
+};
+
+struct WebAuthSettings {
+    bool enabled = false;
+    String username;
+    String password;
+};
+
+struct OledSettings {
+    bool enabled = true;
+    String driver;
+    uint8_t i2cAddress = 0x3C;
+    uint8_t width = 128;
+    uint8_t height = 64;
+    uint16_t rotation = 0;
+    uint8_t sdaPin = 23;
+    uint8_t sclPin = 19;
+    int8_t resetPin = -1;
+    uint16_t dimTimeoutSeconds = 0;
+};
+
+struct LightSettings {
+    bool powerEnabled = true;
+    uint16_t pixelCount = 30;
+    float powerLimiterAmps = 2.0f;
+    uint16_t effectIndex = 0;
+    uint8_t effectSpeed = 128;
+    uint8_t effectIntensity = 128;
+    String primaryColor = "#ffffff";
+    String secondaryColor = "#000000";
+    String tertiaryColor = "#ff7b00";
+};
+
+struct DeviceSettings {
+    String deviceName;
+    String friendlyName;
+    uint8_t savedVolumePercent = 5;
+    bool audioMuted = true;
+    bool lowBatterySleepEnabled = false;
+    uint8_t lowBatterySleepThresholdPercent = 20;
+    uint16_t lowBatteryWakeIntervalMinutes = 15;
+};
+
+struct SettingsBundle {
+    WiFiSettings wifi;
+    MqttSettings mqtt;
+    OtaSettings ota;
+    BatterySettings battery;
+    WebAuthSettings webAuth;
+    OledSettings oled;
+    LightSettings light;
+    DeviceSettings device;
+    bool usingSavedSettings = false;
+};
+
+inline bool parseIp(const String& raw, IPAddress& address) {
+    if (raw.isEmpty()) {
+        return false;
+    }
+    return address.fromString(raw);
+}
