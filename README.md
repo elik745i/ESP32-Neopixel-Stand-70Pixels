@@ -40,6 +40,22 @@ Recommended strip wiring:
 4. Add a bulk capacitor across the strip power rails near the strip input.
 5. For 70 pixels at full white, do not power the strip from the ESP32 board.
 
+## Project Photos
+
+DIY Multicolor Floor Lamp modified to use the ESP32-S3 Mini board.
+
+### Lamp Box
+
+![DIY Multicolor Floor Lamp Box](3D/DIY_Multicolor_Floor_Lamp.jpeg)
+
+### Lamp Assembled View
+
+![DIY Multicolor Floor Lamp Assembled](3D/DIY_Multicolor_Floor_Lamp1.jpeg)
+
+### 3D Printed Controller Casing
+
+![ESP32-S3 Mini Controller Casing](3D/controller.jpeg)
+
 Why GPIO16:
 
 - it is a normal output-capable GPIO on the LOLIN S3 Mini
