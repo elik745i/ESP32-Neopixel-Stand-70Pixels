@@ -128,13 +128,13 @@
                   <option value="7">GPIO7</option>
                   <option value="8">GPIO8</option>
                   <option value="9">GPIO9</option>
-                  <option value="10">GPIO10</option>
+                  <option value="10" selected>GPIO10</option>
                   <option value="11">GPIO11</option>
                   <option value="12">GPIO12</option>
                   <option value="13">GPIO13</option>
                   <option value="14">GPIO14</option>
                   <option value="15">GPIO15</option>
-                  <option value="16" selected>GPIO16</option>
+                  <option value="16">GPIO16</option>
                   <option value="17">GPIO17</option>
                   <option value="18">GPIO18</option>
                   <option value="21">GPIO21</option>
@@ -171,7 +171,7 @@
               <input id="volumeSlider" name="device.savedVolumePercent" form="settingsForm" type="range" min="0" max="100" step="1">
             </div>
             <label class="check"><input id="audioMutedToggle" name="light.powerEnabled" form="settingsForm" type="checkbox"> Power enabled</label>
-            <p id="audioMutedNote" class="note">Recommended wiring for the ESP32-S3 Mini default build: GPIO16 to the strip data input through a 330-470 ohm resistor, shared ground between the board and strip power supply, and a bulk capacitor across the strip power rails. The selected GPIO is saved in NVS and applied after settings save.</p>
+            <p id="audioMutedNote" class="note">The LOLIN S3 Mini default build uses the board's built-in NeoPixel on GPIO10. If you are driving an external strip instead, select a different GPIO, wire that pin to DIN through a 330-470 ohm resistor, share ground with the strip power supply, and add a bulk capacitor across the strip power rails. The selected GPIO is saved in NVS and applied after settings save.</p>
           </form>
 
           <div class="firmware-list" id="recentPlaybackList"></div>

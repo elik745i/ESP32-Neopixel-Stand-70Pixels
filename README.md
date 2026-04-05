@@ -26,7 +26,7 @@ Default light-strip wiring:
 
 | Function | GPIO | Notes |
 |---|---:|---|
-| NeoPixel data | 16 | Recommended default output pin |
+| NeoPixel data | 10 | Default built-in NeoPixel output on LOLIN S3 Mini |
 | Status LED | 48 | On-board LED for status indication |
 | Battery ADC | 4 | Optional external battery divider input |
 | OLED SDA | 8 | Optional I2C OLED |
@@ -34,11 +34,12 @@ Default light-strip wiring:
 
 Recommended strip wiring:
 
-1. Connect GPIO16 to the strip DIN through a 330 to 470 ohm series resistor.
-2. Power the strip from a dedicated 5V supply sized for the LED count.
-3. Tie ESP32 ground and LED power ground together.
-4. Add a bulk capacitor across the strip power rails near the strip input.
-5. For 70 pixels at full white, do not power the strip from the ESP32 board.
+1. The default firmware target uses the LOLIN S3 Mini built-in NeoPixel on GPIO10.
+2. For an external strip, connect the selected GPIO to the strip DIN through a 330 to 470 ohm series resistor.
+3. Power the strip from a dedicated 5V supply sized for the LED count.
+4. Tie ESP32 ground and LED power ground together.
+5. Add a bulk capacitor across the strip power rails near the strip input.
+6. For 70 pixels at full white, do not power the strip from the ESP32 board.
 
 ## Project Photos
 
@@ -56,11 +57,18 @@ DIY Multicolor Floor Lamp modified to use the ESP32-S3 Mini board.
 
 ![ESP32-S3 Mini Controller Casing](3D/controller.jpeg)
 
-Why GPIO16:
+## STL Files
 
-- it is a normal output-capable GPIO on the LOLIN S3 Mini
-- it avoids common boot and USB special-function conflicts
-- it is a straightforward single-wire output for WS2812-class strips
+STLs for printing are in `3D/STL`:
+
+- `3D/STL/Neopixel_Stand_Controller_Bot.stl`
+- `3D/STL/Neopixel_Stand_Controller_Top.stl`
+
+Why GPIO10 by default:
+
+- it matches the LOLIN S3 Mini built-in RGB LED wiring
+- it allows the default build to work immediately on-board without external strip wiring
+- you can still choose another saved GPIO from the Light tab for an external strip
 
 ## Defaults
 
@@ -69,7 +77,7 @@ This repository is configured for the GitHub project:
 - owner: `elik745i`
 - repository: `ESP32-Neopixel-Stand-70Pixels`
 - default pixel count: `70`
-- default NeoPixel data pin: `GPIO16`
+- default NeoPixel data pin: `GPIO10`
 - default OTA asset name: `esp32-neopixel-stand-70pixel-vX.Y.Z.bin`
 
 ## Features
