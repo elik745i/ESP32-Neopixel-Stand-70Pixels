@@ -51,7 +51,7 @@ constexpr float BATTERY_CALIBRATION = 3.866f;
 constexpr uint32_t BATTERY_UPDATE_INTERVAL_MS = 10000;
 constexpr uint16_t BATTERY_MOVING_AVERAGE_WINDOW = 10;
 
-constexpr uint8_t DEFAULT_VOLUME_PERCENT = 40;
+constexpr uint8_t DEFAULT_VOLUME_PERCENT = 20;
 constexpr bool DEFAULT_AUDIO_MUTED = false;
 constexpr uint8_t DEFAULT_NEOPIXEL_DATA_PIN = APP_DEFAULT_NEOPIXEL_PIN;
 constexpr uint16_t DEFAULT_PIXEL_COUNT = 70;

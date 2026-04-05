@@ -550,6 +550,7 @@ void setup() {
     logBootStage("light begin");
     audioPlayer->begin(settings->light.dataPin, settings->light.pixelCount, settings->device.savedVolumePercent, *appState);
     audioPlayer->applyLightSettings(settings->light);
+    audioPlayer->finishStartup();
 
     logBootStage("sound effects begin");
     soundEffects->begin(*settings);

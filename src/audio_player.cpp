@@ -5,6 +5,10 @@
 #include "default_config.h"
 
 namespace {
+constexpr char AP_MODE_PRIMARY_COLOR[] = "#0000FF";
+constexpr unsigned long AP_MODE_PULSE_PERIOD_MS = 2000UL;
+constexpr uint8_t AP_MODE_BOOT_PULSE_COUNT = 5;
+
 String normalizeHexColor(const String& raw, const String& fallback = "#FFFFFF") {
     String color = raw;
     color.trim();
@@ -56,6 +60,12 @@ bool isNumeric(const String& value) {
 
 class AudioPlayer::Impl {
   public:
+        enum class ApIndicatorMode : uint8_t {
+                None,
+                ContinuousUntilSaved,
+                PulseThenRestore,
+        };
+
     WS2812FX* strip = nullptr;
     AppState* appState = nullptr;
     uint8_t dataPin = DefaultConfig::NEOPIXEL_PIN;
@@ -66,6 +76,10 @@ class AudioPlayer::Impl {
     uint8_t effectIntensity = 128;
     float powerLimiterAmps = DefaultConfig::DEFAULT_POWER_LIMITER_AMPS;
     bool powerEnabled = true;
+    bool apIndicatorActive = false;
+    bool allowInteractiveIndicatorCancel = false;
+    ApIndicatorMode apIndicatorMode = ApIndicatorMode::None;
+    unsigned long apIndicatorStartedAt = 0;
     String state = "idle";
     String type = "Static";
     String title = "Off";
@@ -97,12 +111,88 @@ class AudioPlayer::Impl {
         return applyPowerLimit(volume, pixelCount, powerLimiterAmps);
     }
 
-    String currentEffectName() const {
+    uint8_t apIndicatorBrightness() const {
+        const uint8_t requestedBrightness = volume < DefaultConfig::DEFAULT_VOLUME_PERCENT ? DefaultConfig::DEFAULT_VOLUME_PERCENT : volume;
+        return applyPowerLimit(requestedBrightness, pixelCount, powerLimiterAmps);
+    }
+
+    String effectNameForIndex(uint16_t index) const {
         if (strip == nullptr) {
             return "Static";
         }
-        const __FlashStringHelper* name = strip->getModeName(effectIndex);
+        const __FlashStringHelper* name = strip->getModeName(index);
         return name == nullptr ? String("Static") : String(name);
+    }
+
+    void initializeApIndicatorMode(bool usingSavedSettings) {
+        apIndicatorMode = usingSavedSettings ? ApIndicatorMode::PulseThenRestore : ApIndicatorMode::ContinuousUntilSaved;
+        apIndicatorStartedAt = 0;
+        apIndicatorActive = false;
+        allowInteractiveIndicatorCancel = false;
+    }
+
+    void dismissApIndicator() {
+        apIndicatorMode = ApIndicatorMode::None;
+        apIndicatorActive = false;
+        apIndicatorStartedAt = 0;
+    }
+
+    bool shouldShowApIndicator(const AppStateSnapshot& snapshot) {
+        if (snapshot.network.wifiConnected) {
+            apIndicatorMode = ApIndicatorMode::None;
+            return false;
+        }
+
+        if (!snapshot.network.apMode) {
+            return false;
+        }
+
+        if (apIndicatorMode == ApIndicatorMode::ContinuousUntilSaved) {
+            if (snapshot.settings.usingSaved) {
+                apIndicatorMode = ApIndicatorMode::None;
+                return false;
+            }
+            return true;
+        }
+
+        if (apIndicatorMode != ApIndicatorMode::PulseThenRestore) {
+            return false;
+        }
+
+        if (apIndicatorStartedAt == 0) {
+            return true;
+        }
+
+        const unsigned long elapsed = millis() - apIndicatorStartedAt;
+        if (elapsed >= (AP_MODE_PULSE_PERIOD_MS * AP_MODE_BOOT_PULSE_COUNT)) {
+            apIndicatorMode = ApIndicatorMode::None;
+            return false;
+        }
+        return true;
+    }
+
+    void applyApIndicatorFrame(unsigned long now) {
+        rebuildStripIfNeeded();
+        if (strip == nullptr) {
+            return;
+        }
+
+        if (apIndicatorStartedAt == 0) {
+            apIndicatorStartedAt = now;
+            strip->setMode(FX_MODE_STATIC);
+            strip->setColor(parseColor(AP_MODE_PRIMARY_COLOR));
+            strip->start();
+        }
+
+        const unsigned long elapsed = now - apIndicatorStartedAt;
+        const unsigned long cyclePosition = elapsed % AP_MODE_PULSE_PERIOD_MS;
+        const float phase = static_cast<float>(cyclePosition) / static_cast<float>(AP_MODE_PULSE_PERIOD_MS);
+        const float envelope = phase < 0.5f ? (phase * 2.0f) : ((1.0f - phase) * 2.0f);
+        const uint8_t brightnessPercent = static_cast<uint8_t>(apIndicatorBrightness() * envelope + 0.5f);
+
+        strip->setBrightness(map(brightnessPercent, 0, 100, 0, 255));
+        strip->trigger();
+        strip->service();
     }
 
     void applyToStrip() {
@@ -111,15 +201,21 @@ class AudioPlayer::Impl {
             return;
         }
 
-        strip->setMode(effectIndex);
-        strip->setSpeed(speedToWs2812fx(effectSpeed));
-        strip->setColor(parseColor(primaryColor));
-        strip->setBrightness(powerEnabled ? map(effectiveBrightness(), 0, 100, 0, 255) : 0);
+        if (apIndicatorActive) {
+            strip->setMode(FX_MODE_STATIC);
+            strip->setColor(parseColor(AP_MODE_PRIMARY_COLOR));
+            strip->setBrightness(0);
+        } else {
+            strip->setMode(effectIndex);
+            strip->setSpeed(speedToWs2812fx(effectSpeed));
+            strip->setColor(parseColor(primaryColor));
+            strip->setBrightness(powerEnabled ? map(effectiveBrightness(), 0, 100, 0, 255) : 0);
+        }
         strip->start();
         strip->trigger();
         strip->service();
 
-        type = currentEffectName();
+        type = effectNameForIndex(effectIndex);
         title = powerEnabled ? type : String("Off");
         state = powerEnabled ? "playing" : "idle";
     }
@@ -147,6 +243,7 @@ void AudioPlayer::begin(uint8_t dataPin, uint16_t pixelCount, uint8_t initialBri
     }
 
     impl_->appState = &appState;
+    impl_->initializeApIndicatorMode(appState.snapshot().settings.usingSaved);
     impl_->dataPin = dataPin;
     impl_->pixelCount = pixelCount;
     setVolumePercent(initialBrightnessPercent);
@@ -154,8 +251,23 @@ void AudioPlayer::begin(uint8_t dataPin, uint16_t pixelCount, uint8_t initialBri
     impl_->publish();
 }
 
+void AudioPlayer::finishStartup() {
+    if (impl_ == nullptr) {
+        return;
+    }
+
+    impl_->allowInteractiveIndicatorCancel = true;
+}
+
 void AudioPlayer::loop() {
-    if (impl_ != nullptr && impl_->strip != nullptr) {
+    if (impl_ == nullptr) {
+        return;
+    }
+
+    syncStatusIndicators();
+    if (impl_->apIndicatorActive) {
+        impl_->applyApIndicatorFrame(millis());
+    } else if (impl_->strip != nullptr) {
         impl_->strip->service();
     }
 }
@@ -163,6 +275,10 @@ void AudioPlayer::loop() {
 bool AudioPlayer::play(const String& primaryColor, const String& secondaryColor, const String& effectName, const String& source) {
     if (impl_ == nullptr) {
         return false;
+    }
+
+    if (impl_->allowInteractiveIndicatorCancel && impl_->apIndicatorActive) {
+        impl_->dismissApIndicator();
     }
 
     if (!primaryColor.isEmpty()) {
@@ -185,6 +301,10 @@ bool AudioPlayer::play(const String& primaryColor, const String& secondaryColor,
 void AudioPlayer::stop() {
     if (impl_ == nullptr) {
         return;
+    }
+
+    if (impl_->allowInteractiveIndicatorCancel && impl_->apIndicatorActive) {
+        impl_->dismissApIndicator();
     }
 
     impl_->powerEnabled = false;
@@ -213,6 +333,10 @@ void AudioPlayer::applyLightSettings(const LightSettings& settings) {
         return;
     }
 
+    if (impl_->allowInteractiveIndicatorCancel && impl_->apIndicatorActive) {
+        impl_->dismissApIndicator();
+    }
+
     impl_->pixelCount = settings.pixelCount;
     impl_->dataPin = settings.dataPin;
     impl_->powerLimiterAmps = settings.powerLimiterAmps;
@@ -232,9 +356,31 @@ void AudioPlayer::setPowerEnabled(bool enabled) {
         return;
     }
 
+    if (impl_->allowInteractiveIndicatorCancel && impl_->apIndicatorActive) {
+        impl_->dismissApIndicator();
+    }
+
     impl_->powerEnabled = enabled;
     impl_->applyToStrip();
     impl_->publish();
+}
+
+void AudioPlayer::syncStatusIndicators() {
+    if (impl_ == nullptr || impl_->appState == nullptr) {
+        return;
+    }
+
+    const AppStateSnapshot snapshot = impl_->appState->snapshot();
+    const bool shouldShowApIndicator = impl_->shouldShowApIndicator(snapshot);
+    if (impl_->apIndicatorActive == shouldShowApIndicator) {
+        return;
+    }
+
+    impl_->apIndicatorActive = shouldShowApIndicator;
+    if (!shouldShowApIndicator) {
+        impl_->apIndicatorStartedAt = 0;
+    }
+    impl_->applyToStrip();
 }
 
 uint8_t AudioPlayer::volumePercent() const {
@@ -257,8 +403,7 @@ String AudioPlayer::effectName(uint16_t index) const {
     if (impl_ == nullptr || impl_->strip == nullptr || index >= impl_->strip->getModeCount()) {
         return "Static";
     }
-    const __FlashStringHelper* name = impl_->strip->getModeName(index);
-    return name == nullptr ? String("Static") : String(name);
+    return impl_->effectNameForIndex(index);
 }
 
 uint16_t AudioPlayer::effectCount() const {

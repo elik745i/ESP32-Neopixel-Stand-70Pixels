@@ -186,7 +186,7 @@ Typical release flow for this repository:
 
 Current firmware version in this working tree:
 
-- `v0.1.0`
+- `v0.1.1`
 
 Current default hardware profile in this working tree:
 
