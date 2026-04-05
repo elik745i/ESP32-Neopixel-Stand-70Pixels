@@ -186,13 +186,13 @@ Typical release flow for this repository:
 
 Current firmware version in this working tree:
 
-- `v0.1.3`
+- `v0.1.4`
 
 Recent changes included in this version:
 
-- renamed the former audio player component to the light player across the firmware
-- fixed manual Wi-Fi scan reliability by moving scan start into the main loop, retrying empty scans, and reducing AP interference during scans
-- improved AP to station handoff by exposing the obtained device IP in the Wi-Fi tab and redirecting to that IP after a successful Wi-Fi connection
+- keep the fallback AP alive briefly after STA connection so AP clients can receive the device IP and redirect cleanly
+- fix manual Wi-Fi connect so typed SSID and password are explicitly saved before connection begins
+- update the Wi-Fi tab button logic so it switches between `Scan Network` and `Connect` based on scanned or manually entered credentials
 
 Current default hardware profile in this working tree:
 

@@ -131,6 +131,8 @@ void WiFiManager::startAccessPoint() {
     dnsServer_.start(DNS_PORT, "*", WiFi.softAPIP());
     dnsStarted_ = true;
     apMode_ = true;
+    apShutdownPending_ = false;
+    apShutdownAt_ = 0;
     updateAppState();
 }
 
@@ -143,6 +145,8 @@ void WiFiManager::stopAccessPoint() {
         WiFi.softAPdisconnect(true);
         apMode_ = false;
     }
+    apShutdownPending_ = false;
+    apShutdownAt_ = 0;
 }
 
 void WiFiManager::loop() {
@@ -160,8 +164,19 @@ void WiFiManager::loop() {
             if (consecutiveFailureCount_ > 0) {
                 Serial.printf("[wifi] connected after %u failed attempt(s)\n", static_cast<unsigned>(consecutiveFailureCount_));
             }
+            if (apMode_) {
+                apShutdownPending_ = true;
+                apShutdownAt_ = millis() + WIFI_AP_SHUTDOWN_GRACE_MS;
+                Serial.printf("[wifi] station connected, keeping AP alive for %lu ms to allow browser redirect\n",
+                              static_cast<unsigned long>(WIFI_AP_SHUTDOWN_GRACE_MS));
+            }
+        }
+
+        if (apShutdownPending_ && static_cast<long>(millis() - apShutdownAt_) >= 0) {
+            Serial.println("[wifi] AP grace period elapsed, stopping AP");
             stopAccessPoint();
         }
+
         hadConnection_ = true;
         stationAttemptActive_ = false;
         consecutiveFailureCount_ = 0;
@@ -174,6 +189,8 @@ void WiFiManager::loop() {
 
     if (hadConnection_) {
         hadConnection_ = false;
+        apShutdownPending_ = false;
+        apShutdownAt_ = 0;
         if (settings_.wifi.apFallbackEnabled) {
             startAccessPoint();
         }

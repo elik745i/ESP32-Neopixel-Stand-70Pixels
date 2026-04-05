@@ -669,6 +669,17 @@ async function pollStatusUntil(predicate, attempts, delayMs) {
   return false;
 }
 
+async function waitForSettingsIdle(attempts = 50, delayMs = 100) {
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    if (!state.settingsLoading && !state.settingsSaving) {
+      return true;
+    }
+    await delay(delayMs);
+  }
+
+  return !state.settingsLoading && !state.settingsSaving;
+}
+
 function oledDimensions() {
   const configuredWidth = Number(namedField("oled.width")?.value || state.settings?.oled?.width || 128);
   const configuredHeight = Number(namedField("oled.height")?.value || state.settings?.oled?.height || 64);
@@ -1234,9 +1245,12 @@ function updateWifiActionButton() {
     return;
   }
 
-  const connectMode = state.wifiSelectionPending || state.wifiConnectInProgress;
+  const ssid = String(namedField("wifi.ssid")?.value || "").trim();
+  const password = String(namedField("wifi.password")?.value || "").trim();
+  const manualCredentialsReady = Boolean(ssid && password);
+  const connectMode = state.wifiSelectionPending || manualCredentialsReady || state.wifiConnectInProgress;
 
-  elements.scanWifiButton.textContent = connectMode ? "Connect Wi-Fi" : "Scan Network";
+  elements.scanWifiButton.textContent = connectMode ? "Connect" : "Scan Network";
   elements.scanWifiButton.classList.toggle("secondary", !connectMode);
 }
 
@@ -1499,6 +1513,12 @@ async function connectWifi() {
   setScanStatus(`Saving Wi-Fi settings for ${ssid}...`);
 
   try {
+    if (state.settingsSaveTimer) {
+      window.clearTimeout(state.settingsSaveTimer);
+      state.settingsSaveTimer = null;
+    }
+
+    await waitForSettingsIdle();
     await saveSettings({ silent: true });
     setMessage(`Wi-Fi settings saved for ${ssid}`);
     setScanStatus(`Connecting to ${ssid}...`);
@@ -1835,7 +1855,9 @@ async function copyCurrentUrl() {
 }
 
 elements.scanWifiButton.addEventListener("click", () => {
-  const shouldConnect = state.wifiSelectionPending;
+  const ssid = String(namedField("wifi.ssid")?.value || "").trim();
+  const password = String(namedField("wifi.password")?.value || "").trim();
+  const shouldConnect = state.wifiSelectionPending || Boolean(ssid && password);
   return (shouldConnect ? connectWifi() : scanWifiNetworks()).catch(handleError);
 });
 elements.playbackActionButton?.addEventListener("click", () => handlePlaybackAction().catch(handleError));

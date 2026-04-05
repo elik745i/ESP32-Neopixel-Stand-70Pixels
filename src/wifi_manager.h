@@ -56,6 +56,7 @@ class WiFiManager {
     static constexpr uint32_t WIFI_CONNECT_TIMEOUT_MS = 20000;
     static constexpr uint32_t WIFI_RETRY_INTERVAL_MS = 15000;
     static constexpr uint32_t WIFI_SCAN_RETRY_DELAY_MS = 350;
+    static constexpr uint32_t WIFI_AP_SHUTDOWN_GRACE_MS = 12000;
     static constexpr uint8_t WIFI_MAX_CONSECUTIVE_FAILURES = 10;
     static constexpr uint8_t WIFI_SCAN_MAX_ATTEMPTS = 4;
 
@@ -70,6 +71,7 @@ class WiFiManager {
     bool scanRequestActive_ = false;
     bool scanRetryPending_ = false;
     bool restoreApAfterScan_ = false;
+    bool apShutdownPending_ = false;
     bool scanFailed_ = false;
     bool hadConnection_ = false;
     bool recoveryRebootRecommended_ = false;
@@ -81,6 +83,7 @@ class WiFiManager {
     unsigned long lastConnectAttemptAt_ = 0;
     unsigned long lastScanStartedAt_ = 0;
     unsigned long nextScanAttemptAt_ = 0;
+    unsigned long apShutdownAt_ = 0;
     wifi_event_id_t disconnectEventId_ = 0;
     wifi_err_reason_t lastDisconnectReason_ = WIFI_REASON_UNSPECIFIED;
     String apSsid_;
