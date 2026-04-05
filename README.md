@@ -41,6 +41,10 @@ Recommended strip wiring:
 5. Add a bulk capacitor across the strip power rails near the strip input.
 6. For 70 pixels at full white, do not power the strip from the ESP32 board.
 
+ESP32-S3 Mini pinout sketch:
+
+![ESP32-S3 Mini Pinout](Docs/esp32-s3_pinout.jpeg)
+
 ## Project Photos
 
 DIY Multicolor Floor Lamp modified to use the ESP32-S3 Mini board.
