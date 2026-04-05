@@ -117,11 +117,48 @@
               </label>
             </div>
             <div class="row">
+              <label>GPIO
+                <select name="light.dataPin" form="settingsForm">
+                  <option value="1">GPIO1</option>
+                  <option value="2">GPIO2</option>
+                  <option value="3">GPIO3</option>
+                  <option value="4">GPIO4</option>
+                  <option value="5">GPIO5</option>
+                  <option value="6">GPIO6</option>
+                  <option value="7">GPIO7</option>
+                  <option value="8">GPIO8</option>
+                  <option value="9">GPIO9</option>
+                  <option value="10">GPIO10</option>
+                  <option value="11">GPIO11</option>
+                  <option value="12">GPIO12</option>
+                  <option value="13">GPIO13</option>
+                  <option value="14">GPIO14</option>
+                  <option value="15">GPIO15</option>
+                  <option value="16" selected>GPIO16</option>
+                  <option value="17">GPIO17</option>
+                  <option value="18">GPIO18</option>
+                  <option value="21">GPIO21</option>
+                  <option value="33">GPIO33</option>
+                  <option value="34">GPIO34</option>
+                  <option value="35">GPIO35</option>
+                  <option value="36">GPIO36</option>
+                  <option value="37">GPIO37</option>
+                  <option value="38">GPIO38</option>
+                  <option value="39">GPIO39</option>
+                  <option value="40">GPIO40</option>
+                  <option value="41">GPIO41</option>
+                  <option value="42">GPIO42</option>
+                  <option value="43">GPIO43</option>
+                  <option value="44">GPIO44</option>
+                  <option value="47">GPIO47</option>
+                  <option value="48">GPIO48</option>
+                </select>
+              </label>
               <label>Power Limiter (A)
                 <input name="light.powerLimiterAmps" form="settingsForm" type="number" min="0.1" max="20" step="0.1" value="2.0">
               </label>
               <label>Pixels
-                <input name="light.pixelCount" form="settingsForm" type="number" min="1" max="600" step="1" value="30">
+                <input name="light.pixelCount" form="settingsForm" type="number" min="1" max="600" step="1" value="70">
               </label>
             </div>
             <div class="inline-actions">
@@ -134,7 +171,7 @@
               <input id="volumeSlider" name="device.savedVolumePercent" form="settingsForm" type="range" min="0" max="100" step="1">
             </div>
             <label class="check"><input id="audioMutedToggle" name="light.powerEnabled" form="settingsForm" type="checkbox"> Power enabled</label>
-            <p id="audioMutedNote" class="note">Recommended wiring for the ESP32-S3 Mini default build: GPIO16 to the strip data input through a 330-470 ohm resistor, shared ground between the board and strip power supply, and a bulk capacitor across the strip power rails.</p>
+            <p id="audioMutedNote" class="note">Recommended wiring for the ESP32-S3 Mini default build: GPIO16 to the strip data input through a 330-470 ohm resistor, shared ground between the board and strip power supply, and a bulk capacitor across the strip power rails. The selected GPIO is saved in NVS and applied after settings save.</p>
           </form>
 
           <div class="firmware-list" id="recentPlaybackList"></div>

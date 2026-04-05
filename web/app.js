@@ -854,7 +854,8 @@ function collectForm() {
   payload.device.savedVolumePercent = Number(elements.volumeSlider?.value || payload.device.savedVolumePercent || 5);
   payload.light ||= {};
   payload.light.powerEnabled = Boolean(elements.audioMutedToggle?.checked ?? payload.light.powerEnabled ?? true);
-  payload.light.pixelCount = Number(payload.light.pixelCount || 30);
+  payload.light.dataPin = Number(payload.light.dataPin || 16);
+  payload.light.pixelCount = Number(payload.light.pixelCount || 70);
   payload.light.powerLimiterAmps = Number(payload.light.powerLimiterAmps || 2.0);
   payload.light.effectIndex = Number(payload.light.effectIndex || 0);
   payload.light.effectSpeed = Number(payload.light.effectSpeed || 128);

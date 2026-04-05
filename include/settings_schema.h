@@ -65,6 +65,7 @@ struct OledSettings {
 
 struct LightSettings {
     bool powerEnabled = true;
+    uint8_t dataPin = 16;
     uint16_t pixelCount = 30;
     float powerLimiterAmps = 2.0f;
     uint16_t effectIndex = 0;

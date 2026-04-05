@@ -79,7 +79,7 @@ class AudioPlayer::Impl {
     }
 
     void rebuildStripIfNeeded() {
-        if (strip != nullptr && pixelCount == strip->getLength()) {
+        if (strip != nullptr && pixelCount == strip->getLength() && dataPin == strip->getPin()) {
             return;
         }
 
@@ -214,6 +214,7 @@ void AudioPlayer::applyLightSettings(const LightSettings& settings) {
     }
 
     impl_->pixelCount = settings.pixelCount;
+    impl_->dataPin = settings.dataPin;
     impl_->powerLimiterAmps = settings.powerLimiterAmps;
     impl_->effectIndex = settings.effectIndex;
     impl_->effectSpeed = settings.effectSpeed;

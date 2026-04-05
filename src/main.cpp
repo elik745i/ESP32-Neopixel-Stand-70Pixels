@@ -548,7 +548,7 @@ void setup() {
     batteryMonitor->begin(settings->battery, DefaultConfig::BATTERY_ADC_PIN, *appState);
 
     logBootStage("light begin");
-    audioPlayer->begin(DefaultConfig::NEOPIXEL_PIN, settings->light.pixelCount, settings->device.savedVolumePercent, *appState);
+    audioPlayer->begin(settings->light.dataPin, settings->light.pixelCount, settings->device.savedVolumePercent, *appState);
     audioPlayer->applyLightSettings(settings->light);
 
     logBootStage("sound effects begin");

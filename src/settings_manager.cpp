@@ -6,6 +6,47 @@ namespace {
 constexpr char PREF_NAMESPACE[] = "notifier";
 constexpr char PREF_MARKER[] = "saved";
 
+bool isValidLightDataPin(uint8_t pin) {
+    switch (pin) {
+        case 1:
+        case 2:
+        case 3:
+        case 4:
+        case 5:
+        case 6:
+        case 7:
+        case 8:
+        case 9:
+        case 10:
+        case 11:
+        case 12:
+        case 13:
+        case 14:
+        case 15:
+        case 16:
+        case 17:
+        case 18:
+        case 21:
+        case 33:
+        case 34:
+        case 35:
+        case 36:
+        case 37:
+        case 38:
+        case 39:
+        case 40:
+        case 41:
+        case 42:
+        case 43:
+        case 44:
+        case 47:
+        case 48:
+            return true;
+        default:
+            return false;
+    }
+}
+
 template <typename T>
 T clampValue(T value, T low, T high) {
     if (value < low) {
@@ -68,6 +109,7 @@ SettingsBundle SettingsManager::defaults() const {
     settings.oled.dimTimeoutSeconds = DefaultConfig::OLED_DIM_TIMEOUT_SECONDS;
 
     settings.light.powerEnabled = true;
+    settings.light.dataPin = DefaultConfig::DEFAULT_NEOPIXEL_DATA_PIN;
     settings.light.pixelCount = DefaultConfig::DEFAULT_PIXEL_COUNT;
     settings.light.powerLimiterAmps = DefaultConfig::DEFAULT_POWER_LIMITER_AMPS;
     settings.light.effectIndex = 0;
@@ -145,6 +187,9 @@ SettingsBundle SettingsManager::sanitize(const SettingsBundle& input) const {
         settings.oled.rotation = 0;
     }
     settings.oled.dimTimeoutSeconds = clampValue<uint16_t>(settings.oled.dimTimeoutSeconds, static_cast<uint16_t>(0), static_cast<uint16_t>(3600));
+    if (!isValidLightDataPin(settings.light.dataPin)) {
+        settings.light.dataPin = DefaultConfig::DEFAULT_NEOPIXEL_DATA_PIN;
+    }
     settings.light.pixelCount = clampValue<uint16_t>(settings.light.pixelCount, static_cast<uint16_t>(1), DefaultConfig::MAX_PIXEL_COUNT);
     settings.light.powerLimiterAmps = clampValue<float>(settings.light.powerLimiterAmps, 0.1f, 20.0f);
     settings.light.effectSpeed = clampValue<uint8_t>(settings.light.effectSpeed, static_cast<uint8_t>(1), static_cast<uint8_t>(255));
@@ -209,6 +254,7 @@ SettingsBundle SettingsManager::load() {
     settings.oled.dimTimeoutSeconds = readUInt("oled_dim", settings.oled.dimTimeoutSeconds);
 
     settings.light.powerEnabled = readBool("light_pwr", settings.light.powerEnabled);
+    settings.light.dataPin = readUInt("light_pin", settings.light.dataPin);
     settings.light.pixelCount = readUInt("light_cnt", settings.light.pixelCount);
     settings.light.powerLimiterAmps = readFloat("light_amp", settings.light.powerLimiterAmps);
     settings.light.effectIndex = readUInt("light_fx", settings.light.effectIndex);
@@ -283,6 +329,7 @@ bool SettingsManager::save(const SettingsBundle& settings) {
     changed |= writeUIntIfChanged("oled_dim", sanitized.oled.dimTimeoutSeconds);
 
     changed |= writeBoolIfChanged("light_pwr", sanitized.light.powerEnabled);
+    changed |= writeUIntIfChanged("light_pin", sanitized.light.dataPin);
     changed |= writeUIntIfChanged("light_cnt", sanitized.light.pixelCount);
     changed |= writeFloatIfChanged("light_amp", sanitized.light.powerLimiterAmps);
     changed |= writeUIntIfChanged("light_fx", sanitized.light.effectIndex);
@@ -363,6 +410,7 @@ void SettingsManager::toJson(const SettingsBundle& settings, JsonObject root) co
 
     JsonObject light = root["light"].to<JsonObject>();
     light["powerEnabled"] = settings.light.powerEnabled;
+    light["dataPin"] = settings.light.dataPin;
     light["pixelCount"] = settings.light.pixelCount;
     light["powerLimiterAmps"] = settings.light.powerLimiterAmps;
     light["effectIndex"] = settings.light.effectIndex;
@@ -468,6 +516,7 @@ bool SettingsManager::updateFromJson(SettingsBundle& settings, JsonVariantConst 
         copyString(light, "secondaryColor", settings.light.secondaryColor);
         copyString(light, "tertiaryColor", settings.light.tertiaryColor);
         if (light["powerEnabled"].is<bool>()) settings.light.powerEnabled = light["powerEnabled"].as<bool>();
+        if (light["dataPin"].is<uint8_t>()) settings.light.dataPin = light["dataPin"].as<uint8_t>();
         if (light["pixelCount"].is<uint16_t>()) settings.light.pixelCount = light["pixelCount"].as<uint16_t>();
         if (light["powerLimiterAmps"].is<float>()) settings.light.powerLimiterAmps = light["powerLimiterAmps"].as<float>();
         if (light["effectIndex"].is<uint16_t>()) settings.light.effectIndex = light["effectIndex"].as<uint16_t>();

@@ -53,6 +53,7 @@ constexpr uint16_t BATTERY_MOVING_AVERAGE_WINDOW = 10;
 
 constexpr uint8_t DEFAULT_VOLUME_PERCENT = 40;
 constexpr bool DEFAULT_AUDIO_MUTED = false;
+constexpr uint8_t DEFAULT_NEOPIXEL_DATA_PIN = APP_DEFAULT_NEOPIXEL_PIN;
 constexpr uint16_t DEFAULT_PIXEL_COUNT = 70;
 constexpr float DEFAULT_POWER_LIMITER_AMPS = 2.0f;
 constexpr uint16_t MAX_PIXEL_COUNT = 600;
