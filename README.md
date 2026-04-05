@@ -51,7 +51,7 @@ Why GPIO16:
 This repository is configured for the GitHub project:
 
 - owner: `elik745i`
-- repository: `ESP32-Neopixel-Stand-70Pixel`
+- repository: `ESP32-Neopixel-Stand-70Pixels`
 - default pixel count: `70`
 - default NeoPixel data pin: `GPIO16`
 - default OTA asset name: `esp32-neopixel-stand-70pixel-vX.Y.Z.bin`
@@ -95,8 +95,8 @@ OTA checks are aligned to this repository's GitHub Releases.
 
 The firmware queries:
 
-- `https://api.github.com/repos/elik745i/ESP32-Neopixel-Stand-70Pixel/releases/latest`
-- `https://api.github.com/repos/elik745i/ESP32-Neopixel-Stand-70Pixel/releases?per_page=10`
+- `https://api.github.com/repos/elik745i/ESP32-Neopixel-Stand-70Pixels/releases/latest`
+- `https://api.github.com/repos/elik745i/ESP32-Neopixel-Stand-70Pixels/releases?per_page=10`
 
 The default release asset template is:
 
