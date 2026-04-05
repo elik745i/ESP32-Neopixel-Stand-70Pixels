@@ -116,6 +116,8 @@ Recent Home Assistant integration improvements:
 - helper entities for primary color and light effect report live state instead of remaining `unknown`
 - per-pixel automation can publish directly to dedicated MQTT topics without adding another Home Assistant entity
 
+For multiple controllers on the same broker, each unit must have a unique `Device Name` on the Device tab. Home Assistant discovery uses that value for retained discovery topics, device identifiers, and entity unique IDs. Changing only the MQTT `Client ID` or `Base Topic` is not enough to prevent discovery collisions. Set both `Device Name` and `Friendly Name` to distinct values on every controller, then reconnect MQTT or reboot so Home Assistant receives the updated discovery payloads.
+
 ## PSRAM Optimization
 
 This firmware explicitly enables PSRAM-aware behavior on boot:
@@ -201,6 +203,8 @@ Example request body:
 ```
 
 Manual per-pixel mode temporarily overrides WS2812FX effects. A normal light command, play request, or `{"restore":true}` payload returns the strip to the regular effect renderer.
+
+If you previously discovered two controllers with the same `Device Name`, Home Assistant or the MQTT broker may still have retained discovery entries for the old shared identity. Delete the old Home Assistant device and clear the old retained `homeassistant/.../config` topics if the duplicate entry does not disappear after renaming the devices.
 
 ## Build
 
