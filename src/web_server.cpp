@@ -48,6 +48,7 @@ void WebServerManager::begin(
     SettingsGetter settingsGetter,
     SettingsSaver settingsSaver,
     LightEffectsGetter lightEffectsGetter,
+    PixelHandler pixelHandler,
     PlayHandler playHandler,
     StopHandler stopHandler,
     VolumeHandler volumeHandler,
@@ -62,6 +63,7 @@ void WebServerManager::begin(
     settingsGetter_ = settingsGetter;
     settingsSaver_ = settingsSaver;
     lightEffectsGetter_ = lightEffectsGetter;
+    pixelHandler_ = pixelHandler;
     playHandler_ = playHandler;
     stopHandler_ = stopHandler;
     volumeHandler_ = volumeHandler;
@@ -187,6 +189,36 @@ void WebServerManager::registerApiRoutes() {
             JsonDocument response;
             response["ok"] = true;
             sendJson(request, response);
+        });
+
+    server_.on(
+        "/api/light/pixels", HTTP_POST,
+        [](AsyncWebServerRequest* request) {
+            (void)request;
+        }, nullptr,
+        [this](AsyncWebServerRequest* request, uint8_t* data, size_t len, size_t index, size_t total) {
+            if (index != 0 || len != total) {
+                return;
+            }
+            if (redirectCaptivePortalIfNeeded(request) || !ensureAuthorized(request)) {
+                return;
+            }
+
+            JsonDocument doc;
+            if (len == 0 || deserializeJson(doc, data, len) != DeserializationError::Ok) {
+                request->send(400, "application/json", "{\"error\":\"invalid json\"}");
+                return;
+            }
+
+            String payload;
+            serializeJson(doc, payload);
+            String error;
+            if (!pixelHandler_ || !pixelHandler_(payload, error)) {
+                request->send(400, "application/json", String("{\"error\":\"") + error + "\"}");
+                return;
+            }
+
+            request->send(200, "application/json", "{\"ok\":true}");
         });
 
     server_.on(

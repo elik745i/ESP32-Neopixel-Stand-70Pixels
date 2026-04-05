@@ -190,6 +190,11 @@ void MqttManager::configureClient() {
     if (settings_.mqtt.host.isEmpty()) {
         consecutiveFailureCount_ = 0;
         recoveryRebootRecommended_ = false;
+        setConnectionDetail("MQTT host is not configured.");
+    } else if (!connectionEnabled_) {
+        setConnectionDetail("MQTT connection is disabled.");
+    } else if (wifiManager_ != nullptr && !wifiManager_->isConnected()) {
+        setConnectionDetail("Waiting for Wi-Fi before MQTT can connect.");
     }
 
     if (!connectionEnabled_) {
@@ -237,6 +242,7 @@ void MqttManager::handleConnected(bool sessionPresent) {
     if (appState_ != nullptr) {
         appState_->setMqttConnected(true);
     }
+    setConnectionDetail("");
     client_.publish(HaBridge::availabilityTopic(settings_).c_str(), 1, true, "online");
     client_.subscribe(HaBridge::commandTopic(settings_, "play").c_str(), 1);
     client_.subscribe(HaBridge::commandTopic(settings_, "tts").c_str(), 1);
@@ -246,6 +252,8 @@ void MqttManager::handleConnected(bool sessionPresent) {
     client_.subscribe(HaBridge::commandTopic(settings_, "effect").c_str(), 1);
     client_.subscribe(HaBridge::commandTopic(settings_, "color").c_str(), 1);
     client_.subscribe(HaBridge::colorCommandTopic(settings_).c_str(), 1);
+    client_.subscribe(HaBridge::pixelsCommandTopic(settings_).c_str(), 1);
+    client_.subscribe(HaBridge::pixelCommandWildcardTopic(settings_).c_str(), 1);
     client_.subscribe(HaBridge::commandTopic(settings_, "brightness").c_str(), 1);
 #ifdef APP_ENABLE_HACS_MQTT
     client_.subscribe(HaBridge::hacsMediaPlayerCommandTopic(settings_, "play").c_str(), 1);
@@ -266,6 +274,15 @@ void MqttManager::handleDisconnected(AsyncMqttClientDisconnectReason reason) {
     if (appState_ != nullptr) {
         appState_->setMqttConnected(false);
     }
+
+    if (!connectionEnabled_) {
+        setConnectionDetail("MQTT disconnected by user request.");
+    } else if (wifiManager_ != nullptr && !wifiManager_->isConnected()) {
+        setConnectionDetail("Wi-Fi disconnected. Waiting to reconnect MQTT.");
+    } else {
+        setConnectionDetail("MQTT disconnected: " + disconnectReasonToString(reason));
+    }
+
     registerFailedAttempt(reason);
 }
 
@@ -348,6 +365,30 @@ void MqttManager::handleMessage(char* topic, char* payload, AsyncMqttClientMessa
         command.url = topicValue == HaBridge::colorCommandTopic(settings_)
             ? normalizeRgbPayload(payloadValue)
             : payloadValue;
+        commandHandler_(command);
+        return;
+    }
+
+    if (topicValue == HaBridge::pixelsCommandTopic(settings_)) {
+        command.action = "pixels";
+        command.rawPayload = payloadValue;
+        commandHandler_(command);
+        return;
+    }
+
+    if (topicValue.startsWith(HaBridge::pixelCommandPrefix(settings_))) {
+        const String indexSegment = topicValue.substring(HaBridge::pixelCommandPrefix(settings_).length());
+        if (indexSegment.isEmpty()) {
+            return;
+        }
+        for (size_t index = 0; index < indexSegment.length(); ++index) {
+            if (!isDigit(static_cast<unsigned char>(indexSegment[index]))) {
+                return;
+            }
+        }
+        command.action = "pixel";
+        command.pixelIndex = indexSegment.toInt();
+        command.url = payloadValue;
         commandHandler_(command);
         return;
     }
@@ -530,6 +571,9 @@ bool MqttManager::requestConnect(String& error) {
     }
 
     connectionEnabled_ = true;
+    setConnectionDetail(wifiManager_ != nullptr && !wifiManager_->isConnected()
+        ? "Waiting for Wi-Fi before MQTT can connect."
+        : "MQTT connect requested.");
     if (client_.connected()) {
         publishDiscovery();
         publishState();
@@ -546,6 +590,7 @@ bool MqttManager::requestDisconnect(String& error) {
     consecutiveFailureCount_ = 0;
     recoveryRebootRecommended_ = false;
     lastConnectAttemptAt_ = millis();
+    setConnectionDetail("MQTT disconnected by user request.");
     client_.disconnect(true);
     if (appState_ != nullptr) {
         appState_->setMqttConnected(false);
@@ -571,14 +616,19 @@ void MqttManager::registerFailedAttempt(AsyncMqttClientDisconnectReason reason) 
                   static_cast<unsigned>(MQTT_MAX_CONSECUTIVE_FAILURES));
 
     if (isCredentialFailureReason(reason)) {
-        setFrontendError("MQTT broker rejected the configured client ID or credentials.");
+        const String message = "MQTT broker rejected the configured client ID or credentials.";
+        setConnectionDetail(message);
+        setFrontendError(message);
         recoveryRebootRecommended_ = false;
         return;
     }
 
+    setConnectionDetail("MQTT retry pending after " + disconnectReasonToString(reason) + ".");
+
     if (consecutiveFailureCount_ >= MQTT_MAX_CONSECUTIVE_FAILURES) {
         clearFrontendError();
         recoveryRebootRecommended_ = true;
+        setConnectionDetail("MQTT recovery reboot recommended after repeated disconnects.");
         Serial.println("[mqtt] max consecutive failures reached, recovery reboot recommended");
     }
 }
@@ -592,6 +642,35 @@ bool MqttManager::isCredentialFailureReason(AsyncMqttClientDisconnectReason reas
             return true;
         default:
             return false;
+    }
+}
+
+String MqttManager::disconnectReasonToString(AsyncMqttClientDisconnectReason reason) const {
+    switch (reason) {
+        case AsyncMqttClientDisconnectReason::TCP_DISCONNECTED:
+            return "TCP disconnected";
+        case AsyncMqttClientDisconnectReason::MQTT_UNACCEPTABLE_PROTOCOL_VERSION:
+            return "unacceptable MQTT protocol version";
+        case AsyncMqttClientDisconnectReason::MQTT_IDENTIFIER_REJECTED:
+            return "client ID rejected";
+        case AsyncMqttClientDisconnectReason::MQTT_SERVER_UNAVAILABLE:
+            return "broker unavailable";
+        case AsyncMqttClientDisconnectReason::MQTT_MALFORMED_CREDENTIALS:
+            return "malformed credentials";
+        case AsyncMqttClientDisconnectReason::MQTT_NOT_AUTHORIZED:
+            return "not authorized";
+        case AsyncMqttClientDisconnectReason::ESP8266_NOT_ENOUGH_SPACE:
+            return "not enough client buffer space";
+        case AsyncMqttClientDisconnectReason::TLS_BAD_FINGERPRINT:
+            return "TLS fingerprint mismatch";
+        default:
+            return "unknown reason (" + String(static_cast<int>(reason)) + ")";
+    }
+}
+
+void MqttManager::setConnectionDetail(const String& detail) {
+    if (appState_ != nullptr) {
+        appState_->setMqttDetail(detail);
     }
 }
 

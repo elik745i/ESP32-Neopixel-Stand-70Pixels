@@ -50,6 +50,8 @@ class MqttManager {
     void handleMessage(char* topic, char* payload, AsyncMqttClientMessageProperties properties, size_t len, size_t index, size_t total);
     void publishJson(const String& topic, const JsonDocument& doc, bool retained);
     bool isCredentialFailureReason(AsyncMqttClientDisconnectReason reason) const;
+    String disconnectReasonToString(AsyncMqttClientDisconnectReason reason) const;
+    void setConnectionDetail(const String& detail);
     void clearFrontendError();
     void setFrontendError(const String& message);
     void registerFailedAttempt(AsyncMqttClientDisconnectReason reason);

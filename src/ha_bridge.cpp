@@ -85,6 +85,18 @@ String colorCommandTopic(const SettingsBundle& settings) {
     return settings.mqtt.baseTopic + "/cmd/color_rgb";
 }
 
+String pixelsCommandTopic(const SettingsBundle& settings) {
+    return settings.mqtt.baseTopic + "/cmd/pixels";
+}
+
+String pixelCommandPrefix(const SettingsBundle& settings) {
+    return settings.mqtt.baseTopic + "/cmd/pixel/";
+}
+
+String pixelCommandWildcardTopic(const SettingsBundle& settings) {
+    return pixelCommandPrefix(settings) + "+";
+}
+
 String entityUniqueId(const SettingsBundle& settings, const char* suffix) {
     String id = settings.device.deviceName;
     id.replace(" ", "_");

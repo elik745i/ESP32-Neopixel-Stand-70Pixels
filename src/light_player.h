@@ -17,6 +17,10 @@ class LightPlayer {
     void setVolumePercent(uint8_t brightnessPercent);
     void applyLightSettings(const LightSettings& settings);
     void setPowerEnabled(bool enabled);
+    bool applyPixelCommand(const String& payload, const String& source, String& error);
+    bool setPixelColor(uint16_t index, const String& color, const String& source, String& error);
+    void clearPixelOverride(const String& source = "manual");
+    void setOtaProgress(uint8_t progressPercent, bool active);
     void syncStatusIndicators();
     uint8_t volumePercent() const;
     String currentTitle() const;

@@ -55,6 +55,19 @@ void AppState::setMqttConnected(bool connected) {
     xSemaphoreGive(mutex_);
 }
 
+void AppState::setMqttDetail(const String& detail) {
+    if (!ensureMutex()) {
+        return;
+    }
+    xSemaphoreTake(mutex_, portMAX_DELAY);
+    if (state_.network.mqttDetail == detail) {
+        xSemaphoreGive(mutex_);
+        return;
+    }
+    state_.network.mqttDetail = detail;
+    xSemaphoreGive(mutex_);
+}
+
 void AppState::setPlayback(const String& state, const String& type, const String& title, const String& url, const String& source, uint8_t volumePercent) {
     if (!ensureMutex()) {
         return;
@@ -147,6 +160,7 @@ void AppState::toJson(JsonObject root) const {
     network["wifiConnected"] = copy.network.wifiConnected;
     network["apMode"] = copy.network.apMode;
     network["mqttConnected"] = copy.network.mqttConnected;
+    network["mqttDetail"] = copy.network.mqttDetail;
     network["ssid"] = copy.network.ssid;
     network["ip"] = copy.network.ip;
     network["apSsid"] = copy.network.apSsid;

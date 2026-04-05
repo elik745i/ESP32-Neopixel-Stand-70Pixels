@@ -10,6 +10,7 @@ struct NetworkSnapshot {
     bool wifiConnected = false;
     bool apMode = false;
     bool mqttConnected = false;
+    String mqttDetail;
     String ssid;
     String ip;
     String apSsid;
@@ -74,6 +75,7 @@ class AppState {
     void setDevice(const String& deviceName, const String& friendlyName, bool usingSaved);
     void setWiFiStatus(bool connected, bool apMode, const String& ssid, const IPAddress& ip, int32_t rssi, const String& apSsid);
     void setMqttConnected(bool connected);
+    void setMqttDetail(const String& detail);
     void setPlayback(const String& state, const String& type, const String& title, const String& url, const String& source, uint8_t volumePercent);
     void setBattery(float voltage, float rawAdcVoltage, uint16_t rawAdc);
     void setOta(bool busy, bool updateAvailable, const String& latestVersion, const String& lastResult, const String& lastError,

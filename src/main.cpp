@@ -113,6 +113,11 @@ class LightPlayerStub {
         publish();
     }
 
+    bool applyPixelCommand(const String&, const String&, String&) { return false; }
+    bool setPixelColor(uint16_t, const String&, const String&, String&) { return false; }
+    void clearPixelOverride(const String& = "manual") {}
+    void setOtaProgress(uint8_t, bool) {}
+
     uint8_t volumePercent() const { return volume_; }
     String currentState() const { return state_; }
 
@@ -323,7 +328,25 @@ void pumpOtaDisplayProgress() {
     if (appState == nullptr || displayManager == nullptr) {
         return;
     }
-    displayManager->loop(appState->snapshot());
+    const AppStateSnapshot snapshot = appState->snapshot();
+    if (lightPlayer != nullptr) {
+        lightPlayer->setOtaProgress(snapshot.ota.progressPercent,
+                                    snapshot.ota.busy || snapshot.ota.lastResult == "installed");
+    }
+    displayManager->loop(snapshot);
+}
+
+bool applyPixelCommand(const String& payload, const String& source, String& error) {
+    if (lightPlayer == nullptr) {
+        error = "Light engine is not available.";
+        return false;
+    }
+
+    const bool ok = lightPlayer->applyPixelCommand(payload, source, error);
+    if (ok && mqttManager != nullptr) {
+        mqttManager->publishState();
+    }
+    return ok;
 }
 
 void applyOnboardingConnectedEffect() {
@@ -467,6 +490,17 @@ void handleMqttCommand(const PlaybackCommand& command) {
         settings->light.primaryColor = command.url;
         String ignored;
         playRequest(settings->light.primaryColor, settings->light.secondaryColor, String(settings->light.effectIndex), command.source, ignored);
+    } else if (command.action == "pixels") {
+        String ignored;
+        applyPixelCommand(command.rawPayload, command.source.isEmpty() ? String("mqtt") : command.source, ignored);
+    } else if (command.action == "pixel") {
+        String error;
+        if (lightPlayer != nullptr && command.pixelIndex >= 0 &&
+            lightPlayer->setPixelColor(static_cast<uint16_t>(command.pixelIndex), command.url,
+                                       command.source.isEmpty() ? String("mqtt") : command.source, error) &&
+            mqttManager != nullptr) {
+            mqttManager->publishState();
+        }
     } else if (command.action == "play" && command.url.isEmpty()) {
         String ignored;
         playRequest(settings->light.primaryColor, settings->light.secondaryColor, String(settings->light.effectIndex), command.source, ignored);
@@ -638,6 +672,9 @@ void setup() {
                 effects.add(lightPlayer->effectName(index));
             }
         },
+        [](const String& payload, String& error) {
+            return applyPixelCommand(payload, "web", error);
+        },
         [](const String& url, const String& label, const String& type, String& error) {
             return playRequest(url, label, type, "", error);
         },
@@ -728,6 +765,8 @@ void loop() {
     processWifiConnectedPreview();
 
     const AppStateSnapshot snapshot = appState->snapshot();
+    lightPlayer->setOtaProgress(snapshot.ota.progressPercent,
+                                snapshot.ota.busy || snapshot.ota.lastResult == "installed");
     processSoundEffectTransitions(snapshot);
     displayManager->loop(snapshot);
     handleLowBatterySleepPolicy(snapshot);

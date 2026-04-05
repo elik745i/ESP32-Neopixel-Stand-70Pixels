@@ -1,5 +1,9 @@
 #include "light_player.h"
 
+#include <algorithm>
+#include <vector>
+
+#include <ArduinoJson.h>
 #include <WS2812FX.h>
 
 #include "default_config.h"
@@ -8,6 +12,9 @@ namespace {
 constexpr char AP_MODE_PRIMARY_COLOR[] = "#0000FF";
 constexpr unsigned long AP_MODE_PULSE_PERIOD_MS = 2000UL;
 constexpr uint8_t AP_MODE_BOOT_PULSE_COUNT = 5;
+constexpr char OTA_PROGRESS_ACTIVE_COLOR[] = "#00D26A";
+constexpr char OTA_PROGRESS_INACTIVE_COLOR[] = "#081018";
+constexpr char MANUAL_PIXELS_TITLE[] = "Manual Pixels";
 
 String normalizeHexColor(const String& raw, const String& fallback = "#FFFFFF") {
     String color = raw;
@@ -56,6 +63,40 @@ bool isNumeric(const String& value) {
     }
     return true;
 }
+
+String normalizeCommandColor(const String& raw, bool& valid) {
+    String value = raw;
+    value.trim();
+    value.toLowerCase();
+    if (value.isEmpty()) {
+        valid = false;
+        return String();
+    }
+
+    if (value == "off" || value == "clear" || value == "none" || value == "black" || value == "0") {
+        valid = true;
+        return "#000000";
+    }
+
+    if (!value.startsWith("#")) {
+        value = "#" + value;
+    }
+    if (value.length() != 7) {
+        valid = false;
+        return String();
+    }
+
+    for (size_t index = 1; index < value.length(); ++index) {
+        if (!isHexadecimalDigit(value[index])) {
+            valid = false;
+            return String();
+        }
+    }
+
+    value.toUpperCase();
+    valid = true;
+    return value;
+}
 }  // namespace
 
 class LightPlayer::Impl {
@@ -76,6 +117,10 @@ class LightPlayer::Impl {
     uint8_t effectIntensity = 128;
     float powerLimiterAmps = DefaultConfig::DEFAULT_POWER_LIMITER_AMPS;
     bool powerEnabled = true;
+    bool pixelOverrideActive = false;
+    std::vector<uint32_t> pixelColors;
+    bool otaProgressActive = false;
+    uint8_t otaProgressPercent = 0;
     bool apIndicatorActive = false;
     bool allowInteractiveIndicatorCancel = false;
     ApIndicatorMode apIndicatorMode = ApIndicatorMode::None;
@@ -90,6 +135,22 @@ class LightPlayer::Impl {
 
     ~Impl() {
         delete strip;
+    }
+
+    void ensurePixelBuffer() {
+        if (pixelColors.size() != pixelCount) {
+            pixelColors.assign(pixelCount, 0);
+        }
+    }
+
+    void resetPixelBuffer() {
+        ensurePixelBuffer();
+        std::fill(pixelColors.begin(), pixelColors.end(), 0);
+    }
+
+    void deactivatePixelOverride() {
+        pixelOverrideActive = false;
+        pixelColors.clear();
     }
 
     void rebuildStripIfNeeded() {
@@ -200,35 +261,106 @@ class LightPlayer::Impl {
         strip->service();
     }
 
-    void applyToStrip() {
+    void renderPixelOverride() {
         rebuildStripIfNeeded();
         if (strip == nullptr) {
             return;
         }
 
-        if (apIndicatorActive) {
-            strip->setMode(FX_MODE_STATIC);
-            strip->setColor(parseColor(AP_MODE_PRIMARY_COLOR));
-            strip->setBrightness(0);
-        } else {
-            uint32_t effectColors[] = {
-                parseColor(primaryColor),
-                parseColor(secondaryColor),
-                parseColor(tertiaryColor),
-            };
-            strip->setSegment(0, 0, pixelCount - 1, effectIndex, effectColors, speedToWs2812fx(effectSpeed));
-            strip->setBrightness(powerEnabled ? map(effectiveBrightness(), 0, 100, 0, 255) : 0);
+        ensurePixelBuffer();
+        strip->setMode(FX_MODE_STATIC);
+        strip->setBrightness(powerEnabled ? map(effectiveBrightness(), 0, 100, 0, 255) : 0);
+        for (uint16_t index = 0; index < pixelCount; ++index) {
+            strip->setPixelColor(index, pixelColors[index]);
         }
+        strip->show();
+    }
+
+    void renderOtaProgress() {
+        rebuildStripIfNeeded();
+        if (strip == nullptr) {
+            return;
+        }
+
+        const uint16_t filledPixels = otaProgressPercent == 0
+            ? 0
+            : static_cast<uint16_t>((static_cast<uint32_t>(otaProgressPercent) * pixelCount + 99U) / 100U);
+        const uint32_t activeColor = parseColor(OTA_PROGRESS_ACTIVE_COLOR);
+        const uint32_t inactiveColor = parseColor(OTA_PROGRESS_INACTIVE_COLOR);
+
+        strip->setMode(FX_MODE_STATIC);
+        strip->setBrightness(map(apIndicatorBrightness(), 0, 100, 0, 255));
+        for (uint16_t index = 0; index < pixelCount; ++index) {
+            strip->setPixelColor(index, index < filledPixels ? activeColor : inactiveColor);
+        }
+        strip->show();
+    }
+
+    void renderEffectMode() {
+        rebuildStripIfNeeded();
+        if (strip == nullptr) {
+            return;
+        }
+
+        uint32_t effectColors[] = {
+            parseColor(primaryColor),
+            parseColor(secondaryColor),
+            parseColor(tertiaryColor),
+        };
+        strip->setSegment(0, 0, pixelCount - 1, effectIndex, effectColors, speedToWs2812fx(effectSpeed));
+        strip->setBrightness(powerEnabled ? map(effectiveBrightness(), 0, 100, 0, 255) : 0);
         strip->start();
         strip->trigger();
         strip->service();
+    }
 
-        type = effectNameForIndex(effectIndex);
-        title = powerEnabled ? type : String("Off");
-        state = powerEnabled ? "playing" : "idle";
+    void renderCurrentOutput() {
+        if (otaProgressActive) {
+            renderOtaProgress();
+            return;
+        }
+        if (apIndicatorActive) {
+            applyApIndicatorFrame(millis());
+            return;
+        }
+        if (pixelOverrideActive) {
+            renderPixelOverride();
+            return;
+        }
+        renderEffectMode();
+    }
+
+    void applyToStrip() {
+        if (pixelOverrideActive) {
+            type = MANUAL_PIXELS_TITLE;
+            title = powerEnabled ? String(MANUAL_PIXELS_TITLE) : String("Off");
+            state = powerEnabled ? "playing" : "idle";
+        } else {
+            type = effectNameForIndex(effectIndex);
+            title = powerEnabled ? type : String("Off");
+            state = powerEnabled ? "playing" : "idle";
+        }
+        renderCurrentOutput();
     }
 
     String currentUrlSummary() const {
+        if (pixelOverrideActive) {
+            size_t litPixels = 0;
+            for (uint32_t color : pixelColors) {
+                if (color != 0) {
+                    ++litPixels;
+                }
+            }
+
+            String summary = String(MANUAL_PIXELS_TITLE);
+            summary += " | ";
+            summary += String(litPixels);
+            summary += "/";
+            summary += String(pixelCount);
+            summary += " px lit";
+            return summary;
+        }
+
         String summary = effectNameForIndex(effectIndex);
         summary += " | ";
         summary += primaryColor;
@@ -279,6 +411,8 @@ void LightPlayer::loop() {
     syncStatusIndicators();
     if (impl_->apIndicatorActive) {
         impl_->applyApIndicatorFrame(millis());
+    } else if (impl_->otaProgressActive || impl_->pixelOverrideActive) {
+        impl_->renderCurrentOutput();
     } else if (impl_->strip != nullptr) {
         impl_->strip->service();
     }
@@ -292,6 +426,8 @@ bool LightPlayer::play(const String& primaryColor, const String& secondaryColor,
     if (impl_->allowInteractiveIndicatorCancel && impl_->apIndicatorActive) {
         impl_->dismissApIndicator();
     }
+
+    impl_->deactivatePixelOverride();
 
     if (!primaryColor.isEmpty()) {
         impl_->primaryColor = normalizeHexColor(primaryColor, impl_->primaryColor);
@@ -318,6 +454,8 @@ void LightPlayer::stop() {
     if (impl_->allowInteractiveIndicatorCancel && impl_->apIndicatorActive) {
         impl_->dismissApIndicator();
     }
+
+    impl_->deactivatePixelOverride();
 
     impl_->powerEnabled = false;
     impl_->source = "manual";
@@ -349,6 +487,8 @@ void LightPlayer::applyLightSettings(const LightSettings& settings) {
         impl_->dismissApIndicator();
     }
 
+    impl_->deactivatePixelOverride();
+
     impl_->pixelCount = settings.pixelCount;
     impl_->dataPin = settings.dataPin;
     impl_->powerLimiterAmps = settings.powerLimiterAmps;
@@ -377,6 +517,200 @@ void LightPlayer::setPowerEnabled(bool enabled) {
     impl_->publish();
 }
 
+bool LightPlayer::applyPixelCommand(const String& payload, const String& source, String& error) {
+    if (impl_ == nullptr) {
+        error = "Light engine is not initialized.";
+        return false;
+    }
+
+    JsonDocument doc;
+    const DeserializationError parseError = deserializeJson(doc, payload);
+    if (parseError != DeserializationError::Ok) {
+        error = "Pixel command must be valid JSON.";
+        return false;
+    }
+
+    JsonVariantConst root = doc.as<JsonVariantConst>();
+    JsonArrayConst updates;
+    JsonArrayConst ranges;
+    JsonObjectConst command;
+    bool clearFirst = false;
+    bool modified = false;
+
+    if (root.is<JsonObjectConst>()) {
+        command = root.as<JsonObjectConst>();
+        if (command["restore"] | false) {
+            clearPixelOverride(source);
+            return true;
+        }
+
+        clearFirst = command["clear"] | false;
+
+        if (!command["brightness"].isNull()) {
+            impl_->volume = constrain(command["brightness"].as<int>(), 0, 100);
+            modified = true;
+        }
+
+        if (!command["fill"].isNull()) {
+            bool colorValid = false;
+            const String fillColor = normalizeCommandColor(String(static_cast<const char*>(command["fill"] | "")), colorValid);
+            if (!colorValid) {
+                error = "Fill color must be a #RRGGBB value or 'off'.";
+                return false;
+            }
+            impl_->resetPixelBuffer();
+            std::fill(impl_->pixelColors.begin(), impl_->pixelColors.end(), parseColor(fillColor));
+            modified = true;
+        }
+
+        if (command["ranges"].is<JsonArrayConst>()) {
+            ranges = command["ranges"].as<JsonArrayConst>();
+        }
+
+        if (command["pixels"].is<JsonArrayConst>()) {
+            updates = command["pixels"].as<JsonArrayConst>();
+        }
+    } else if (root.is<JsonArrayConst>()) {
+        updates = root.as<JsonArrayConst>();
+    } else {
+        error = "Pixel command root must be a JSON object or array.";
+        return false;
+    }
+
+    if (clearFirst || modified || ranges.size() > 0 || updates.size() > 0) {
+        impl_->ensurePixelBuffer();
+    }
+    if (clearFirst) {
+        std::fill(impl_->pixelColors.begin(), impl_->pixelColors.end(), 0);
+        modified = true;
+    }
+
+    for (JsonVariantConst rangeEntry : ranges) {
+        if (!rangeEntry.is<JsonObjectConst>()) {
+            continue;
+        }
+
+        const JsonObjectConst rangeObject = rangeEntry.as<JsonObjectConst>();
+        const int start = rangeObject["start"] | 0;
+        const int end = rangeObject["end"] | start;
+        bool colorValid = false;
+        const String rangeColor = normalizeCommandColor(String(static_cast<const char*>(rangeObject["color"] | "")), colorValid);
+        if (!colorValid) {
+            error = "Range color must be a #RRGGBB value or 'off'.";
+            return false;
+        }
+
+        const int first = max(0, min(start, end));
+        const int last = min(static_cast<int>(impl_->pixelCount) - 1, max(start, end));
+        for (int index = first; index <= last; ++index) {
+            impl_->pixelColors[static_cast<size_t>(index)] = parseColor(rangeColor);
+        }
+        modified = true;
+    }
+
+    size_t arrayIndex = 0;
+    for (JsonVariantConst update : updates) {
+        int index = static_cast<int>(arrayIndex);
+        String colorValue;
+
+        if (update.is<JsonObjectConst>()) {
+            const JsonObjectConst item = update.as<JsonObjectConst>();
+            index = item["index"] | index;
+            colorValue = String(static_cast<const char*>(item["color"] | ""));
+        } else if (!update.isNull()) {
+            colorValue = String(static_cast<const char*>(update.as<const char*>()));
+        }
+
+        ++arrayIndex;
+        if (colorValue.isEmpty() || index < 0 || index >= static_cast<int>(impl_->pixelCount)) {
+            continue;
+        }
+
+        bool colorValid = false;
+        const String normalizedColor = normalizeCommandColor(colorValue, colorValid);
+        if (!colorValid) {
+            error = "Pixel colors must be #RRGGBB values or 'off'.";
+            return false;
+        }
+
+        impl_->pixelColors[static_cast<size_t>(index)] = parseColor(normalizedColor);
+        modified = true;
+    }
+
+    if (!modified) {
+        error = "Pixel command did not contain any changes.";
+        return false;
+    }
+
+    if (impl_->allowInteractiveIndicatorCancel && impl_->apIndicatorActive) {
+        impl_->dismissApIndicator();
+    }
+
+    impl_->source = source.isEmpty() ? String("manual") : source;
+    impl_->powerEnabled = true;
+    impl_->pixelOverrideActive = true;
+    impl_->applyToStrip();
+    impl_->publish();
+    return true;
+}
+
+bool LightPlayer::setPixelColor(uint16_t index, const String& color, const String& source, String& error) {
+    if (impl_ == nullptr) {
+        error = "Light engine is not initialized.";
+        return false;
+    }
+    if (index >= impl_->pixelCount) {
+        error = "Pixel index is out of range.";
+        return false;
+    }
+
+    bool colorValid = false;
+    const String normalizedColor = normalizeCommandColor(color, colorValid);
+    if (!colorValid) {
+        error = "Pixel color must be a #RRGGBB value or 'off'.";
+        return false;
+    }
+
+    if (impl_->allowInteractiveIndicatorCancel && impl_->apIndicatorActive) {
+        impl_->dismissApIndicator();
+    }
+
+    impl_->ensurePixelBuffer();
+    impl_->pixelColors[index] = parseColor(normalizedColor);
+    impl_->pixelOverrideActive = true;
+    impl_->powerEnabled = true;
+    impl_->source = source.isEmpty() ? String("manual") : source;
+    impl_->applyToStrip();
+    impl_->publish();
+    return true;
+}
+
+void LightPlayer::clearPixelOverride(const String& source) {
+    if (impl_ == nullptr || !impl_->pixelOverrideActive) {
+        return;
+    }
+
+    impl_->source = source.isEmpty() ? String("manual") : source;
+    impl_->deactivatePixelOverride();
+    impl_->applyToStrip();
+    impl_->publish();
+}
+
+void LightPlayer::setOtaProgress(uint8_t progressPercent, bool active) {
+    if (impl_ == nullptr) {
+        return;
+    }
+
+    const uint8_t clamped = constrain(progressPercent, static_cast<uint8_t>(0), static_cast<uint8_t>(100));
+    if (impl_->otaProgressActive == active && impl_->otaProgressPercent == clamped) {
+        return;
+    }
+
+    impl_->otaProgressActive = active;
+    impl_->otaProgressPercent = clamped;
+    impl_->renderCurrentOutput();
+}
+
 void LightPlayer::syncStatusIndicators() {
     if (impl_ == nullptr || impl_->appState == nullptr) {
         return;
@@ -392,7 +726,7 @@ void LightPlayer::syncStatusIndicators() {
     if (!shouldShowApIndicator) {
         impl_->apIndicatorStartedAt = 0;
     }
-    impl_->applyToStrip();
+    impl_->renderCurrentOutput();
 }
 
 uint8_t LightPlayer::volumePercent() const {

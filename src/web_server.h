@@ -18,6 +18,7 @@ class WebServerManager {
     using SettingsGetter = std::function<SettingsBundle(void)>;
     using SettingsSaver = std::function<bool(JsonVariantConst, String&)>;
     using LightEffectsGetter = std::function<void(JsonArray)>;
+    using PixelHandler = std::function<bool(const String&, String&)>;
     using PlayHandler = std::function<bool(const String&, const String&, const String&, String&)>;
     using StopHandler = std::function<void(void)>;
     using VolumeHandler = std::function<void(uint8_t)>;
@@ -34,6 +35,7 @@ class WebServerManager {
         SettingsGetter settingsGetter,
         SettingsSaver settingsSaver,
         LightEffectsGetter lightEffectsGetter,
+        PixelHandler pixelHandler,
         PlayHandler playHandler,
         StopHandler stopHandler,
         VolumeHandler volumeHandler,
@@ -52,6 +54,7 @@ class WebServerManager {
     SettingsGetter settingsGetter_;
     SettingsSaver settingsSaver_;
     LightEffectsGetter lightEffectsGetter_;
+    PixelHandler pixelHandler_;
     PlayHandler playHandler_;
     StopHandler stopHandler_;
     VolumeHandler volumeHandler_;

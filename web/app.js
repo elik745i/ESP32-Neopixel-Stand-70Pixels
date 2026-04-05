@@ -1434,6 +1434,7 @@ function renderStatus(status) {
   const ota = status.otaManager || status.ota || {};
   const wifiConnected = Boolean(status.network.wifiConnected);
   const mqttConnected = Boolean(status.network.mqttConnected);
+  const mqttDetail = String(status.network.mqttDetail || "").trim();
   const playbackActive = status.playback.state === "playing";
   const savedVolumePercent = Number(state.settings?.device?.savedVolumePercent ?? status.playback.volumePercent ?? 0);
 
@@ -1515,6 +1516,14 @@ function renderStatus(status) {
     } else {
       setMqttConnectStatus("Connecting to MQTT broker...");
     }
+  } else if (mqttConnected) {
+    setMqttConnectStatus(`Connected to ${status.settings?.mqtt?.host || namedField("mqtt.host")?.value || "broker"}`);
+  } else if (mqttDetail) {
+    setMqttConnectStatus(mqttDetail, /rejected|not authorized|credential|error/i.test(mqttDetail));
+  } else if (!wifiConnected) {
+    setMqttConnectStatus("Waiting for Wi-Fi before MQTT can connect...");
+  } else {
+    setMqttConnectStatus("MQTT offline.");
   }
 
   if (state.wifiConnectInProgress) {

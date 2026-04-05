@@ -13,6 +13,8 @@ struct PlaybackCommand {
     String label;
     String source;
     String mediaType;
+    String rawPayload;
+    int32_t pixelIndex = -1;
     uint8_t volumePercent = 0;
     bool powerEnabled = true;
 };
@@ -33,6 +35,9 @@ String hacsMediaPlayerCommandTopic(const SettingsBundle& settings, const char* c
 #endif
 String commandTopic(const SettingsBundle& settings, const char* command);
 String colorCommandTopic(const SettingsBundle& settings);
+String pixelsCommandTopic(const SettingsBundle& settings);
+String pixelCommandPrefix(const SettingsBundle& settings);
+String pixelCommandWildcardTopic(const SettingsBundle& settings);
 String entityUniqueId(const SettingsBundle& settings, const char* suffix);
 String discoveryTopic(const SettingsBundle& settings, const char* component, const char* objectId);
 String discoveryPayloadSensor(const SettingsBundle& settings, const char* objectId, const char* name, const char* stateTopic, const char* valueTemplate, const char* unit, const char* deviceClass, const char* stateClass, const char* icon = nullptr, int suggestedDisplayPrecision = -1);
