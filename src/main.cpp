@@ -80,7 +80,7 @@ void loop() {
 #include "wifi_manager.h"
 
 #ifdef APP_DISABLE_AUDIO
-class AudioPlayerStub {
+class LightPlayerStub {
   public:
     void begin(uint8_t, uint8_t, uint8_t, uint8_t initialVolumePercent, AppState& appState) {
         appState_ = &appState;
@@ -132,10 +132,10 @@ class AudioPlayerStub {
     String source_ = "disabled";
 };
 
-using AudioPlayerType = AudioPlayerStub;
+using LightPlayerType = LightPlayerStub;
 #else
-#include "audio_player.h"
-using AudioPlayerType = AudioPlayer;
+#include "light_player.h"
+using LightPlayerType = LightPlayer;
 #endif
 
 namespace {
@@ -145,7 +145,7 @@ SettingsBundle* settings = nullptr;
 WiFiManager* wifiManager = nullptr;
 BatteryMonitor* batteryMonitor = nullptr;
 DisplayManager* displayManager = nullptr;
-AudioPlayerType* audioPlayer = nullptr;
+LightPlayerType* lightPlayer = nullptr;
 OtaManager* otaManager = nullptr;
 MqttManager* mqttManager = nullptr;
 WebServerManager* webServer = nullptr;
@@ -180,11 +180,14 @@ bool previousMqttConnected = false;
 String previousPlaybackState = "idle";
 bool transitionStateInitialized = false;
 bool onboardingConnectedEffectApplied = false;
+bool wifiConnectedPreviewActive = false;
+unsigned long wifiConnectedPreviewEndsAt = 0;
 
 constexpr float kBatteryPercentEmptyVoltage = 3.2f;
 constexpr float kBatteryPercentFullVoltage = 4.2f;
 constexpr unsigned long kLowBatteryWakeWindowMs = 30000UL;
 constexpr unsigned long kVolumePersistDelayMs = 750UL;
+constexpr unsigned long kWifiConnectedPreviewMs = 6000UL;
 
 bool isBatterySamplingAllowed() {
     return true;
@@ -262,8 +265,8 @@ void enterLowBatteryDeepSleep(uint8_t batteryPercent, float voltage, const char*
                   static_cast<unsigned>(wakeIntervalMinutes));
     Serial.flush();
 
-    if (audioPlayer != nullptr) {
-        audioPlayer->stop();
+    if (lightPlayer != nullptr) {
+        lightPlayer->stop();
     }
     if (displayManager != nullptr) {
         displayManager->powerOff();
@@ -324,16 +327,41 @@ void pumpOtaDisplayProgress() {
 }
 
 void applyOnboardingConnectedEffect() {
-    if (settings == nullptr || audioPlayer == nullptr || settings->usingSavedSettings || onboardingConnectedEffectApplied) {
+    if (settings == nullptr || lightPlayer == nullptr || settings->usingSavedSettings || onboardingConnectedEffectApplied) {
         return;
     }
 
     settings->device.savedVolumePercent = DefaultConfig::DEFAULT_VOLUME_PERCENT;
-    settings->light.effectIndex = audioPlayer->findEffectIndex("Rainbow");
+    settings->light.effectIndex = lightPlayer->findEffectIndex("Rainbow");
     settings->light.powerEnabled = true;
-    audioPlayer->setVolumePercent(DefaultConfig::DEFAULT_VOLUME_PERCENT);
-    audioPlayer->play(settings->light.primaryColor, settings->light.secondaryColor, String(settings->light.effectIndex), "system");
+    lightPlayer->setVolumePercent(DefaultConfig::DEFAULT_VOLUME_PERCENT);
+    lightPlayer->play(settings->light.primaryColor, settings->light.secondaryColor, String(settings->light.effectIndex), "system");
     onboardingConnectedEffectApplied = true;
+}
+
+void startSavedLightWifiConnectedPreview() {
+    if (settings == nullptr || lightPlayer == nullptr || !settings->usingSavedSettings) {
+        return;
+    }
+
+    lightPlayer->setVolumePercent(settings->device.savedVolumePercent);
+    lightPlayer->play(settings->light.primaryColor, settings->light.secondaryColor, "Rainbow", "system");
+    wifiConnectedPreviewActive = true;
+    wifiConnectedPreviewEndsAt = millis() + kWifiConnectedPreviewMs;
+}
+
+void processWifiConnectedPreview() {
+    if (!wifiConnectedPreviewActive || settings == nullptr || lightPlayer == nullptr) {
+        return;
+    }
+
+    if (static_cast<long>(millis() - wifiConnectedPreviewEndsAt) < 0) {
+        return;
+    }
+
+    lightPlayer->setVolumePercent(settings->device.savedVolumePercent);
+    lightPlayer->applyLightSettings(settings->light);
+    wifiConnectedPreviewActive = false;
 }
 
 bool initializeRuntimeObjects() {
@@ -355,8 +383,8 @@ bool initializeRuntimeObjects() {
     if (displayManager == nullptr) {
         displayManager = new DisplayManager();
     }
-    if (audioPlayer == nullptr) {
-        audioPlayer = new AudioPlayerType();
+    if (lightPlayer == nullptr) {
+        lightPlayer = new LightPlayerType();
     }
     if (otaManager == nullptr) {
         otaManager = new OtaManager();
@@ -375,7 +403,7 @@ bool initializeRuntimeObjects() {
     }
 
     return appState != nullptr && settingsManager != nullptr && settings != nullptr && wifiManager != nullptr &&
-           batteryMonitor != nullptr && displayManager != nullptr && audioPlayer != nullptr && otaManager != nullptr &&
+           batteryMonitor != nullptr && displayManager != nullptr && lightPlayer != nullptr && otaManager != nullptr &&
            mqttManager != nullptr && webServer != nullptr && soundEffects != nullptr && deferredActions != nullptr;
 }
 
@@ -384,8 +412,8 @@ void applyRuntimeSettings() {
     wifiManager->applySettings(*settings);
     batteryMonitor->applySettings(settings->battery);
     displayManager->applySettings(settings->oled);
-    audioPlayer->setVolumePercent(settings->device.savedVolumePercent);
-    audioPlayer->applyLightSettings(settings->light);
+    lightPlayer->setVolumePercent(settings->device.savedVolumePercent);
+    lightPlayer->applyLightSettings(settings->light);
     soundEffects->applySettings(*settings);
     mqttManager->applySettings(*settings);
     otaManager->applySettings(*settings);
@@ -417,11 +445,11 @@ bool playRequest(const String& url, const String& label, const String& type, con
 
 void handleMqttCommand(const PlaybackCommand& command) {
     if (command.action == "stop" || command.action == "pause") {
-        audioPlayer->stop();
+        lightPlayer->stop();
         settings->light.powerEnabled = false;
     } else if (command.action == "volume") {
         settings->device.savedVolumePercent = command.volumePercent;
-        audioPlayer->setVolumePercent(command.volumePercent);
+        lightPlayer->setVolumePercent(command.volumePercent);
         soundEffects->setVolumePercent(command.volumePercent);
         deferredActions->pendingVolume = command.volumePercent;
         deferredActions->volumePending = false;
@@ -429,10 +457,10 @@ void handleMqttCommand(const PlaybackCommand& command) {
         deferredActions->volumeSaveAt = millis() + kVolumePersistDelayMs;
     } else if (command.action == "power") {
         settings->light.powerEnabled = command.powerEnabled;
-        audioPlayer->setPowerEnabled(command.powerEnabled);
+        lightPlayer->setPowerEnabled(command.powerEnabled);
         settingsManager->save(*settings);
     } else if (command.action == "effect") {
-        settings->light.effectIndex = audioPlayer->findEffectIndex(command.mediaType.isEmpty() ? command.label : command.mediaType);
+        settings->light.effectIndex = lightPlayer->findEffectIndex(command.mediaType.isEmpty() ? command.label : command.mediaType);
         String ignored;
         playRequest(settings->light.primaryColor, settings->light.secondaryColor, String(settings->light.effectIndex), command.source, ignored);
     } else if (command.action == "color") {
@@ -445,7 +473,7 @@ void handleMqttCommand(const PlaybackCommand& command) {
     } else if (command.action == "playpause") {
         const AppStateSnapshot snapshot = appState->snapshot();
         if (snapshot.playback.state == "playing" || snapshot.playback.state == "buffering") {
-            audioPlayer->stop();
+            lightPlayer->stop();
             settings->light.powerEnabled = false;
         } else if (!snapshot.playback.url.isEmpty()) {
             String ignored;
@@ -469,13 +497,14 @@ void processDeferredActions() {
         settingsManager->save(deferredActions->pendingSettings);
         *settings = settingsManager->load();
         onboardingConnectedEffectApplied = false;
+        wifiConnectedPreviewActive = false;
         applyRuntimeSettings();
         deferredActions->settingsApplyPending = false;
         mqttManager->publishState();
     }
 
     if (deferredActions->stopPending) {
-        audioPlayer->stop();
+        lightPlayer->stop();
         settings->light.powerEnabled = false;
         deferredActions->stopPending = false;
         settingsManager->save(*settings);
@@ -484,7 +513,7 @@ void processDeferredActions() {
 
     if (deferredActions->volumePending) {
         settings->device.savedVolumePercent = deferredActions->pendingVolume;
-        audioPlayer->setVolumePercent(deferredActions->pendingVolume);
+        lightPlayer->setVolumePercent(deferredActions->pendingVolume);
         soundEffects->setVolumePercent(deferredActions->pendingVolume);
         deferredActions->volumePending = false;
         deferredActions->volumeSavePending = true;
@@ -498,14 +527,14 @@ void processDeferredActions() {
     }
 
     if (deferredActions->playPending) {
-        audioPlayer->play(
+        lightPlayer->play(
             deferredActions->playUrl,
             deferredActions->playLabel,
             deferredActions->playType,
             deferredActions->playSource);
         settings->light.primaryColor = deferredActions->playUrl;
         settings->light.secondaryColor = deferredActions->playLabel;
-        settings->light.effectIndex = audioPlayer->findEffectIndex(deferredActions->playType);
+        settings->light.effectIndex = lightPlayer->findEffectIndex(deferredActions->playType);
         settings->light.powerEnabled = true;
         settingsManager->save(*settings);
         deferredActions->playPending = false;
@@ -563,9 +592,9 @@ void setup() {
     batteryMonitor->begin(settings->battery, DefaultConfig::BATTERY_ADC_PIN, *appState);
 
     logBootStage("light begin");
-    audioPlayer->begin(settings->light.dataPin, settings->light.pixelCount, settings->device.savedVolumePercent, *appState);
-    audioPlayer->applyLightSettings(settings->light);
-    audioPlayer->finishStartup();
+    lightPlayer->begin(settings->light.dataPin, settings->light.pixelCount, settings->device.savedVolumePercent, *appState);
+    lightPlayer->applyLightSettings(settings->light);
+    lightPlayer->finishStartup();
 
     logBootStage("sound effects begin");
     soundEffects->begin(*settings);
@@ -617,7 +646,11 @@ void processSoundEffectTransitions(const AppStateSnapshot& snapshot) {
     }
     if (!transitionStateInitialized) {
         if (snapshot.network.wifiConnected) {
-            applyOnboardingConnectedEffect();
+            if (settings != nullptr && settings->usingSavedSettings) {
+                startSavedLightWifiConnectedPreview();
+            } else {
+                applyOnboardingConnectedEffect();
+            }
         }
         previousWifiConnected = snapshot.network.wifiConnected;
         previousMqttConnected = snapshot.network.mqttConnected;
@@ -627,10 +660,15 @@ void processSoundEffectTransitions(const AppStateSnapshot& snapshot) {
     }
 
     if (!previousWifiConnected && snapshot.network.wifiConnected) {
-        applyOnboardingConnectedEffect();
+        if (settings != nullptr && settings->usingSavedSettings) {
+            startSavedLightWifiConnectedPreview();
+        } else {
+            applyOnboardingConnectedEffect();
+        }
         soundEffects->playWifiConnected();
     } else if (previousWifiConnected && !snapshot.network.wifiConnected) {
         onboardingConnectedEffectApplied = false;
+        wifiConnectedPreviewActive = false;
         soundEffects->playWifiDisconnected();
     }
 
@@ -651,7 +689,7 @@ void processSoundEffectTransitions(const AppStateSnapshot& snapshot) {
 
 void loop() {
     if (appState == nullptr || settingsManager == nullptr || wifiManager == nullptr || batteryMonitor == nullptr ||
-        displayManager == nullptr || audioPlayer == nullptr || otaManager == nullptr || mqttManager == nullptr ||
+        displayManager == nullptr || lightPlayer == nullptr || otaManager == nullptr || mqttManager == nullptr ||
         webServer == nullptr) {
         delay(100);
         return;
@@ -659,10 +697,11 @@ void loop() {
 
     processDeferredActions();
     wifiManager->loop();
-    audioPlayer->loop();
+    lightPlayer->loop();
     const bool batteryUpdated = batteryMonitor->loop(isBatterySamplingAllowed());
     otaManager->loop();
     mqttManager->loop();
+    processWifiConnectedPreview();
 
     const AppStateSnapshot snapshot = appState->snapshot();
     processSoundEffectTransitions(snapshot);

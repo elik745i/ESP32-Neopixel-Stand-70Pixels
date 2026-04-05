@@ -5,6 +5,7 @@
 #include <DNSServer.h>
 #include <IPAddress.h>
 #include <WiFi.h>
+#include <vector>
 #include <esp_wifi_types.h>
 
 #include "app_state.h"
@@ -38,6 +39,12 @@ class WiFiManager {
     bool shouldRedirectCaptivePortal(const String& hostHeader) const;
 
   private:
+    struct ScanResult {
+        String ssid;
+        int32_t rssi = 0;
+        bool encrypted = false;
+    };
+
     struct PreferredAccessPoint {
         bool found = false;
         int32_t rssi = INT32_MIN;
@@ -59,8 +66,10 @@ class WiFiManager {
     bool dnsStarted_ = false;
     bool apMode_ = false;
     bool stationAttemptActive_ = false;
+    bool scanStartRequested_ = false;
     bool scanRequestActive_ = false;
     bool scanRetryPending_ = false;
+    bool restoreApAfterScan_ = false;
     bool scanFailed_ = false;
     bool hadConnection_ = false;
     bool recoveryRebootRecommended_ = false;
@@ -75,6 +84,7 @@ class WiFiManager {
     wifi_event_id_t disconnectEventId_ = 0;
     wifi_err_reason_t lastDisconnectReason_ = WIFI_REASON_UNSPECIFIED;
     String apSsid_;
+    std::vector<ScanResult> cachedScanResults_;
 
     void startStation();
     void startAccessPoint();
@@ -87,6 +97,8 @@ class WiFiManager {
     void clearFrontendError();
     void setFrontendError(const String& message);
     void handleDisconnectEvent(arduino_event_info_t info);
+    bool isManualScanInProgress() const;
+    bool isSsidPresentInCachedScan(const String& ssid) const;
     bool launchScanAttempt(unsigned long now);
     void processScan();
     void registerFailedAttempt(const char* reason);

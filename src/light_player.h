@@ -5,7 +5,7 @@
 #include "app_state.h"
 #include "settings_schema.h"
 
-class AudioPlayer {
+class LightPlayer {
   public:
     class Impl;
 

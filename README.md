@@ -171,7 +171,7 @@ Typical release flow for this repository:
 - `include/settings_schema.h`
 - `include/version.h`
 - `src/main.cpp`
-- `src/audio_player.cpp`
+- `src/light_player.cpp`
 - `src/settings_manager.cpp`
 - `src/wifi_manager.cpp`
 - `src/mqtt_manager.cpp`
@@ -186,7 +186,13 @@ Typical release flow for this repository:
 
 Current firmware version in this working tree:
 
-- `v0.1.2`
+- `v0.1.3`
+
+Recent changes included in this version:
+
+- renamed the former audio player component to the light player across the firmware
+- fixed manual Wi-Fi scan reliability by moving scan start into the main loop, retrying empty scans, and reducing AP interference during scans
+- improved AP to station handoff by exposing the obtained device IP in the Wi-Fi tab and redirecting to that IP after a successful Wi-Fi connection
 
 Current default hardware profile in this working tree:
 

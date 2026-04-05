@@ -93,6 +93,10 @@ void WiFiManager::startStation() {
         WiFi.config(INADDR_NONE, INADDR_NONE, INADDR_NONE);
     }
 
+    if (settings_.wifi.apFallbackEnabled) {
+        startAccessPoint();
+    }
+
     const PreferredAccessPoint preferredAccessPoint = findPreferredAccessPoint();
     if (preferredAccessPoint.found && preferredAccessPoint.channel > 0) {
         WiFi.begin(settings_.wifi.ssid.c_str(), settings_.wifi.password.c_str(), preferredAccessPoint.channel,
@@ -148,6 +152,8 @@ void WiFiManager::loop() {
 
     processScan();
 
+    const bool scanInProgress = isManualScanInProgress();
+
     const bool connected = WiFi.status() == WL_CONNECTED;
     if (connected) {
         if (!hadConnection_) {
@@ -174,13 +180,13 @@ void WiFiManager::loop() {
     }
 
     const unsigned long now = millis();
-    if (stationAttemptActive_ && now - connectAttemptStartedAt_ > WIFI_CONNECT_TIMEOUT_MS) {
+    if (!scanInProgress && stationAttemptActive_ && now - connectAttemptStartedAt_ > WIFI_CONNECT_TIMEOUT_MS) {
         stationAttemptActive_ = false;
         registerFailedAttempt("timeout");
         startAccessPoint();
     }
 
-    if (!stationAttemptActive_ && hasStaCredentials() && now - lastConnectAttemptAt_ > WIFI_RETRY_INTERVAL_MS) {
+    if (!scanInProgress && !stationAttemptActive_ && hasStaCredentials() && now - lastConnectAttemptAt_ > WIFI_RETRY_INTERVAL_MS) {
         startStation();
     }
 
@@ -248,6 +254,14 @@ bool WiFiManager::isConfiguredNetworkVisible() {
         return false;
     }
 
+    if (isManualScanInProgress()) {
+        return isSsidPresentInCachedScan(settings_.wifi.ssid);
+    }
+
+    if (lastScanCompleted_ && !cachedScanResults_.empty()) {
+        return isSsidPresentInCachedScan(settings_.wifi.ssid);
+    }
+
     const int existingScanState = WiFi.scanComplete();
     if (existingScanState == WIFI_SCAN_RUNNING) {
         WiFi.scanDelete();
@@ -275,6 +289,10 @@ bool WiFiManager::isConfiguredNetworkVisible() {
 WiFiManager::PreferredAccessPoint WiFiManager::findPreferredAccessPoint() {
     PreferredAccessPoint preferred;
     if (!hasStaCredentials()) {
+        return preferred;
+    }
+
+    if (isManualScanInProgress()) {
         return preferred;
     }
 
@@ -343,6 +361,24 @@ void WiFiManager::setFrontendError(const String& message) {
     }
 }
 
+bool WiFiManager::isManualScanInProgress() const {
+    return scanRequestActive_ || scanRetryPending_;
+}
+
+bool WiFiManager::isSsidPresentInCachedScan(const String& ssid) const {
+    if (ssid.isEmpty()) {
+        return false;
+    }
+
+    for (const ScanResult& result : cachedScanResults_) {
+        if (result.ssid == ssid) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
 void WiFiManager::handleDisconnectEvent(arduino_event_info_t info) {
     lastDisconnectReason_ = static_cast<wifi_err_reason_t>(info.wifi_sta_disconnected.reason);
     lastDisconnectReasonValid_ = true;
@@ -393,9 +429,8 @@ int32_t WiFiManager::rssi() const {
 }
 
 WiFiManager::ScanSnapshot WiFiManager::getScanSnapshot() const {
-    const int scanState = WiFi.scanComplete();
     ScanSnapshot snapshot;
-    snapshot.active = scanState == WIFI_SCAN_RUNNING || scanRetryPending_;
+    snapshot.active = scanStartRequested_ || scanRequestActive_ || scanRetryPending_;
     snapshot.complete = lastScanCompleted_;
     snapshot.failed = scanFailed_;
     snapshot.ageMs = lastScanStartedAt_ == 0 ? 0 : millis() - lastScanStartedAt_;
@@ -403,66 +438,61 @@ WiFiManager::ScanSnapshot WiFiManager::getScanSnapshot() const {
 }
 
 bool WiFiManager::startScan() {
-    scanRequestActive_ = true;
+    scanStartRequested_ = true;
+    scanRequestActive_ = false;
     scanRetryPending_ = false;
     scanFailed_ = false;
     lastScanCompleted_ = false;
     scanAttemptCount_ = 0;
     nextScanAttemptAt_ = 0;
+    cachedScanResults_.clear();
 
-    const int scanState = WiFi.scanComplete();
-    if (scanState == WIFI_SCAN_RUNNING) {
-        return true;
-    }
-    if (scanState >= 0 || scanState == WIFI_SCAN_FAILED) {
-        WiFi.scanDelete();
-    }
-    return launchScanAttempt(millis());
+    Serial.println("[wifi] manual scan queued");
+
+    return true;
 }
 
 void WiFiManager::appendScanResultsJson(JsonArray networks) {
-    const int networkCount = WiFi.scanComplete();
-    if (networkCount < 0) {
-        if (networkCount == WIFI_SCAN_FAILED) {
-            WiFi.scanDelete();
-        }
-        return;
-    }
-
-    lastScanCompleted_ = true;
-    scanRequestActive_ = false;
-    scanRetryPending_ = false;
-    scanFailed_ = false;
-
-    for (int index = 0; index < networkCount; ++index) {
-        const String ssid = WiFi.SSID(index);
-        if (ssid.isEmpty()) {
-            continue;
-        }
-
+    for (const ScanResult& result : cachedScanResults_) {
         JsonObject network = networks.add<JsonObject>();
-        network["ssid"] = ssid;
-        network["rssi"] = WiFi.RSSI(index);
-        network["encrypted"] = WiFi.encryptionType(index) != WIFI_AUTH_OPEN;
+        network["ssid"] = result.ssid;
+        network["rssi"] = result.rssi;
+        network["encrypted"] = result.encrypted;
     }
-
-    WiFi.scanDelete();
 }
 
 bool WiFiManager::launchScanAttempt(unsigned long now) {
+    scanStartRequested_ = false;
+
     const int scanState = WiFi.scanComplete();
     if (scanState == WIFI_SCAN_RUNNING) {
+        scanRequestActive_ = true;
         return true;
     }
     if (scanState >= 0 || scanState == WIFI_SCAN_FAILED) {
         WiFi.scanDelete();
     }
 
+    if (apMode_ && !isConnected()) {
+        restoreApAfterScan_ = true;
+        stopAccessPoint();
+        Serial.println("[wifi] temporarily stopping AP for manual scan");
+    }
+
+    WiFi.mode(WIFI_MODE_STA);
     WiFi.enableSTA(true);
+    scanRequestActive_ = true;
     ++scanAttemptCount_;
     lastScanStartedAt_ = now;
     nextScanAttemptAt_ = 0;
     scanRetryPending_ = false;
+
+    Serial.printf("[wifi] starting scan attempt %u/%u mode=%s ap=%s staStatus=%d\n",
+                  static_cast<unsigned>(scanAttemptCount_),
+                  static_cast<unsigned>(WIFI_SCAN_MAX_ATTEMPTS),
+                  "STA",
+                  apMode_ ? "on" : "off",
+                  static_cast<int>(WiFi.status()));
 
     if (WiFi.scanNetworks(true, true) == WIFI_SCAN_FAILED) {
         if (scanAttemptCount_ < WIFI_SCAN_MAX_ATTEMPTS) {
@@ -476,6 +506,10 @@ bool WiFiManager::launchScanAttempt(unsigned long now) {
 
         scanRequestActive_ = false;
         scanFailed_ = true;
+        if (restoreApAfterScan_) {
+            startAccessPoint();
+            restoreApAfterScan_ = false;
+        }
         Serial.printf("[wifi] scan failed after %u attempt(s)\n", static_cast<unsigned>(scanAttemptCount_));
         return false;
     }
@@ -484,6 +518,11 @@ bool WiFiManager::launchScanAttempt(unsigned long now) {
 }
 
 void WiFiManager::processScan() {
+    if (scanStartRequested_) {
+        launchScanAttempt(millis());
+        return;
+    }
+
     if (!scanRequestActive_) {
         return;
     }
@@ -495,9 +534,48 @@ void WiFiManager::processScan() {
     }
 
     if (scanState >= 0) {
+        cachedScanResults_.clear();
+        cachedScanResults_.reserve(scanState);
+        for (int index = 0; index < scanState; ++index) {
+            const String ssid = WiFi.SSID(index);
+            if (ssid.isEmpty()) {
+                continue;
+            }
+
+            ScanResult result;
+            result.ssid = ssid;
+            result.rssi = WiFi.RSSI(index);
+            result.encrypted = WiFi.encryptionType(index) != WIFI_AUTH_OPEN;
+            cachedScanResults_.push_back(result);
+        }
+
+        Serial.printf("[wifi] scan attempt %u/%u completed raw=%d visible=%u\n",
+                      static_cast<unsigned>(scanAttemptCount_),
+                      static_cast<unsigned>(WIFI_SCAN_MAX_ATTEMPTS),
+                      scanState,
+                      static_cast<unsigned>(cachedScanResults_.size()));
+
+        WiFi.scanDelete();
+
+        if (cachedScanResults_.empty() && scanAttemptCount_ < WIFI_SCAN_MAX_ATTEMPTS) {
+            scanRetryPending_ = true;
+            nextScanAttemptAt_ = now + WIFI_SCAN_RETRY_DELAY_MS;
+            Serial.printf("[wifi] scan attempt %u/%u returned no visible networks, retry scheduled\n",
+                          static_cast<unsigned>(scanAttemptCount_),
+                          static_cast<unsigned>(WIFI_SCAN_MAX_ATTEMPTS));
+            return;
+        }
+
         lastScanCompleted_ = true;
+        scanRequestActive_ = false;
         scanRetryPending_ = false;
         scanFailed_ = false;
+        if (restoreApAfterScan_) {
+            startAccessPoint();
+            restoreApAfterScan_ = false;
+            Serial.println("[wifi] restored AP after manual scan");
+        }
+        Serial.printf("[wifi] scan completed with %u visible network(s)\n", static_cast<unsigned>(cachedScanResults_.size()));
         return;
     }
 
@@ -505,6 +583,10 @@ void WiFiManager::processScan() {
         scanRequestActive_ = false;
         scanRetryPending_ = false;
         scanFailed_ = true;
+        if (restoreApAfterScan_) {
+            startAccessPoint();
+            restoreApAfterScan_ = false;
+        }
         return;
     }
 

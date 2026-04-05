@@ -91,6 +91,8 @@ const elements = {
   wifiNetworkList: document.getElementById("wifiNetworkList"),
   mqttConnectButton: document.getElementById("mqttConnectButton"),
   mqttConnectStatus: document.getElementById("mqttConnectStatus"),
+  wifiConnectedIpNote: document.getElementById("wifiConnectedIpNote"),
+  wifiConnectedIpLink: document.getElementById("wifiConnectedIpLink"),
   oledPreview: document.getElementById("oledPreview"),
   oledPreviewMeta: document.getElementById("oledPreviewMeta"),
   oledPreviewProgress: document.getElementById("oledPreviewProgress"),
@@ -551,21 +553,47 @@ function isApHost() {
   return host === "192.168.4.1";
 }
 
-function maybeRedirectToStationIp(status) {
+function usableStationIp(status) {
+  const stationIp = String(status?.network?.ip || "").trim();
+  if (!status?.network?.wifiConnected || !stationIp || stationIp === "0.0.0.0" || stationIp === "192.168.4.1") {
+    return "";
+  }
+  return stationIp;
+}
+
+function maybeRedirectToStationIp(status, { force = false } = {}) {
   if (state.stationRedirectInProgress) {
     return;
   }
 
-  const stationIp = String(status?.network?.ip || "").trim();
-  if (!status?.network?.wifiConnected || !stationIp || stationIp === window.location.hostname || !isApHost()) {
+  const stationIp = usableStationIp(status);
+  if (!stationIp || stationIp === window.location.hostname || (!force && !isApHost())) {
     return;
   }
 
   state.stationRedirectInProgress = true;
   setMessage(`Wi-Fi connected. Redirecting to ${stationIp}...`);
   window.setTimeout(() => {
-    window.location.href = `http://${stationIp}${window.location.pathname}${window.location.hash}`;
+    window.location.href = `http://${stationIp}/`;
   }, 1200);
+}
+
+function updateWifiConnectedIp(status) {
+  if (!elements.wifiConnectedIpNote || !elements.wifiConnectedIpLink) {
+    return;
+  }
+
+  const stationIp = usableStationIp(status);
+  if (!stationIp) {
+    elements.wifiConnectedIpNote.hidden = true;
+    elements.wifiConnectedIpLink.textContent = "-";
+    elements.wifiConnectedIpLink.href = "#";
+    return;
+  }
+
+  elements.wifiConnectedIpNote.hidden = false;
+  elements.wifiConnectedIpLink.textContent = stationIp;
+  elements.wifiConnectedIpLink.href = `http://${stationIp}/`;
 }
 
 function selectedEffectName() {
@@ -1103,6 +1131,7 @@ function renderWifiHero(connected, ipAddress, rssi) {
 function renderStatus(status) {
   state.status = status;
   maybeRedirectToStationIp(status);
+  updateWifiConnectedIp(status);
   const ota = status.otaManager || status.ota || {};
   const wifiConnected = Boolean(status.network.wifiConnected);
   const mqttConnected = Boolean(status.network.mqttConnected);
@@ -1380,6 +1409,7 @@ function startFirmwareProgressPolling() {
 async function scanWifiNetworks() {
   const button = elements.scanWifiButton;
   const requestId = state.wifiScanRequestId + 1;
+  let transientPollFailures = 0;
   state.wifiScanRequestId = requestId;
   stopWifiScanPolling();
   button.disabled = true;
@@ -1406,6 +1436,8 @@ async function scanWifiNetworks() {
           return;
         }
 
+        transientPollFailures = 0;
+
         if (result.scanning) {
           setScanStatus("Searching...");
           state.wifiScanPollTimer = window.setTimeout(() => {
@@ -1430,6 +1462,16 @@ async function scanWifiNetworks() {
         if (state.wifiScanRequestId !== requestId) {
           return;
         }
+
+        transientPollFailures += 1;
+        if (transientPollFailures <= 4) {
+          setScanStatus("Searching...");
+          state.wifiScanPollTimer = window.setTimeout(() => {
+            pollScan().catch(handleError);
+          }, 1000);
+          return;
+        }
+
         stopWifiScanPolling();
         button.disabled = false;
         setScanStatus(error.message, true);
@@ -1462,14 +1504,16 @@ async function connectWifi() {
     setScanStatus(`Connecting to ${ssid}...`);
 
     const connected = await pollStatusUntil(
-      (status) => Boolean(status?.network?.wifiConnected),
-      25,
+      (status) => Boolean(usableStationIp(status)),
+      30,
       1000,
     );
 
     if (connected) {
-      setScanStatus(`Connected to ${state.status?.network?.ssid || ssid}`);
-      setMessage(`Wi-Fi connected to ${state.status?.network?.ssid || ssid}`);
+      const stationIp = usableStationIp(state.status);
+      setScanStatus(`Connected to ${state.status?.network?.ssid || ssid}${stationIp ? ` at ${stationIp}` : ""}`);
+      setMessage(`Wi-Fi connected to ${state.status?.network?.ssid || ssid}${stationIp ? ` at ${stationIp}` : ""}`);
+      maybeRedirectToStationIp(state.status, { force: true });
     } else {
       setScanStatus("Wi-Fi settings saved. Connection is still in progress.");
       setMessage("Wi-Fi settings saved. Waiting for connection.");

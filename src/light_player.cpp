@@ -1,4 +1,4 @@
-#include "audio_player.h"
+#include "light_player.h"
 
 #include <WS2812FX.h>
 
@@ -58,7 +58,7 @@ bool isNumeric(const String& value) {
 }
 }  // namespace
 
-class AudioPlayer::Impl {
+class LightPlayer::Impl {
   public:
         enum class ApIndicatorMode : uint8_t {
                 None,
@@ -249,7 +249,7 @@ class AudioPlayer::Impl {
     }
 };
 
-void AudioPlayer::begin(uint8_t dataPin, uint16_t pixelCount, uint8_t initialBrightnessPercent, AppState& appState) {
+void LightPlayer::begin(uint8_t dataPin, uint16_t pixelCount, uint8_t initialBrightnessPercent, AppState& appState) {
     if (impl_ == nullptr) {
         impl_ = new Impl();
     }
@@ -263,7 +263,7 @@ void AudioPlayer::begin(uint8_t dataPin, uint16_t pixelCount, uint8_t initialBri
     impl_->publish();
 }
 
-void AudioPlayer::finishStartup() {
+void LightPlayer::finishStartup() {
     if (impl_ == nullptr) {
         return;
     }
@@ -271,7 +271,7 @@ void AudioPlayer::finishStartup() {
     impl_->allowInteractiveIndicatorCancel = true;
 }
 
-void AudioPlayer::loop() {
+void LightPlayer::loop() {
     if (impl_ == nullptr) {
         return;
     }
@@ -284,7 +284,7 @@ void AudioPlayer::loop() {
     }
 }
 
-bool AudioPlayer::play(const String& primaryColor, const String& secondaryColor, const String& effectName, const String& source) {
+bool LightPlayer::play(const String& primaryColor, const String& secondaryColor, const String& effectName, const String& source) {
     if (impl_ == nullptr) {
         return false;
     }
@@ -310,7 +310,7 @@ bool AudioPlayer::play(const String& primaryColor, const String& secondaryColor,
     return true;
 }
 
-void AudioPlayer::stop() {
+void LightPlayer::stop() {
     if (impl_ == nullptr) {
         return;
     }
@@ -325,7 +325,7 @@ void AudioPlayer::stop() {
     impl_->publish();
 }
 
-void AudioPlayer::setVolumePercent(uint8_t brightnessPercent) {
+void LightPlayer::setVolumePercent(uint8_t brightnessPercent) {
     if (impl_ == nullptr) {
         return;
     }
@@ -340,7 +340,7 @@ void AudioPlayer::setVolumePercent(uint8_t brightnessPercent) {
     impl_->publish();
 }
 
-void AudioPlayer::applyLightSettings(const LightSettings& settings) {
+void LightPlayer::applyLightSettings(const LightSettings& settings) {
     if (impl_ == nullptr) {
         return;
     }
@@ -363,7 +363,7 @@ void AudioPlayer::applyLightSettings(const LightSettings& settings) {
     impl_->publish();
 }
 
-void AudioPlayer::setPowerEnabled(bool enabled) {
+void LightPlayer::setPowerEnabled(bool enabled) {
     if (impl_ == nullptr) {
         return;
     }
@@ -377,7 +377,7 @@ void AudioPlayer::setPowerEnabled(bool enabled) {
     impl_->publish();
 }
 
-void AudioPlayer::syncStatusIndicators() {
+void LightPlayer::syncStatusIndicators() {
     if (impl_ == nullptr || impl_->appState == nullptr) {
         return;
     }
@@ -395,34 +395,34 @@ void AudioPlayer::syncStatusIndicators() {
     impl_->applyToStrip();
 }
 
-uint8_t AudioPlayer::volumePercent() const {
+uint8_t LightPlayer::volumePercent() const {
     return impl_ == nullptr ? 0 : impl_->volume;
 }
 
-String AudioPlayer::currentTitle() const {
+String LightPlayer::currentTitle() const {
     return impl_ == nullptr ? String("Off") : impl_->title;
 }
 
-String AudioPlayer::currentUrl() const {
+String LightPlayer::currentUrl() const {
     return impl_ == nullptr ? String() : impl_->currentUrlSummary();
 }
 
-String AudioPlayer::currentState() const {
+String LightPlayer::currentState() const {
     return impl_ == nullptr ? String("idle") : impl_->state;
 }
 
-String AudioPlayer::effectName(uint16_t index) const {
+String LightPlayer::effectName(uint16_t index) const {
     if (impl_ == nullptr || impl_->strip == nullptr || index >= impl_->strip->getModeCount()) {
         return "Static";
     }
     return impl_->effectNameForIndex(index);
 }
 
-uint16_t AudioPlayer::effectCount() const {
+uint16_t LightPlayer::effectCount() const {
     return (impl_ == nullptr || impl_->strip == nullptr) ? 0 : impl_->strip->getModeCount();
 }
 
-uint16_t AudioPlayer::findEffectIndex(const String& name) const {
+uint16_t LightPlayer::findEffectIndex(const String& name) const {
     if (impl_ == nullptr || impl_->strip == nullptr) {
         return 0;
     }
@@ -445,7 +445,7 @@ uint16_t AudioPlayer::findEffectIndex(const String& name) const {
     return 0;
 }
 
-void AudioPlayer::onStationName(const char* text) { (void)text; }
-void AudioPlayer::onStreamTitle(const char* text) { (void)text; }
-void AudioPlayer::onInfo(const char* text) { (void)text; }
-void AudioPlayer::onEof(const char* text) { (void)text; }
+void LightPlayer::onStationName(const char* text) { (void)text; }
+void LightPlayer::onStreamTitle(const char* text) { (void)text; }
+void LightPlayer::onInfo(const char* text) { (void)text; }
+void LightPlayer::onEof(const char* text) { (void)text; }
