@@ -92,20 +92,27 @@ Current light controls:
 
 - power on or off
 - brightness
-- effect selection
+- effect selection from the full runtime WS2812FX effect list
 - effect speed
 - effect intensity placeholder in UI is currently disabled because the bundled WS2812FX version does not expose a compatible runtime control
 - power limiter in amps
 - pixel count
 - primary and secondary colors
+- inline Light tab effect preview
 
 Current infrastructure retained from the notifier baseline:
 
 - Wi-Fi onboarding and AP fallback
-- MQTT connectivity and Home Assistant oriented state topics
+- MQTT connectivity and Home Assistant discovery/state topics
 - GitHub release OTA update checks and installs
 - OLED status screen
 - saved settings in NVS
+
+Recent Home Assistant integration improvements:
+
+- MQTT light discovery now exposes a real HA light entity with power, brightness, RGB color, and effect control
+- Home Assistant effect options are generated from the runtime effect list instead of a static subset
+- helper entities for primary color and light effect report live state instead of remaining `unknown`
 
 ## PSRAM Optimization
 
@@ -186,13 +193,14 @@ Typical release flow for this repository:
 
 Current firmware version in this working tree:
 
-- `v0.1.4`
+- `v0.1.5`
 
 Recent changes included in this version:
 
-- keep the fallback AP alive briefly after STA connection so AP clients can receive the device IP and redirect cleanly
-- fix manual Wi-Fi connect so typed SSID and password are explicitly saved before connection begins
-- update the Wi-Fi tab button logic so it switches between `Scan Network` and `Connect` based on scanned or manually entered credentials
+- load the full runtime effect catalog into the Light tab instead of using a limited hardcoded list
+- add an inline pixel animation preview in the Light tab for live effect visualization
+- expose the strip to Home Assistant as a proper MQTT light with brightness, RGB color, and runtime effect selection
+- publish effect and color helper entity state so Home Assistant no longer shows those values as `unknown`
 
 Current default hardware profile in this working tree:
 

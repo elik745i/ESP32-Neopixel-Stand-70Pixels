@@ -17,6 +17,7 @@ class WebServerManager {
   public:
     using SettingsGetter = std::function<SettingsBundle(void)>;
     using SettingsSaver = std::function<bool(JsonVariantConst, String&)>;
+    using LightEffectsGetter = std::function<void(JsonArray)>;
     using PlayHandler = std::function<bool(const String&, const String&, const String&, String&)>;
     using StopHandler = std::function<void(void)>;
     using VolumeHandler = std::function<void(uint8_t)>;
@@ -32,6 +33,7 @@ class WebServerManager {
         OtaManager& otaManager,
         SettingsGetter settingsGetter,
         SettingsSaver settingsSaver,
+        LightEffectsGetter lightEffectsGetter,
         PlayHandler playHandler,
         StopHandler stopHandler,
         VolumeHandler volumeHandler,
@@ -49,6 +51,7 @@ class WebServerManager {
     OtaManager* otaManager_ = nullptr;
     SettingsGetter settingsGetter_;
     SettingsSaver settingsSaver_;
+    LightEffectsGetter lightEffectsGetter_;
     PlayHandler playHandler_;
     StopHandler stopHandler_;
     VolumeHandler volumeHandler_;

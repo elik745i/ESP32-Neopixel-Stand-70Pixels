@@ -13,8 +13,9 @@
 class MqttManager {
   public:
     using CommandHandler = std::function<void(const PlaybackCommand& command)>;
+    using LightEffectsGetter = HaBridge::LightEffectsGetter;
 
-    void begin(const SettingsBundle& settings, AppState& appState, WiFiManager& wifiManager, CommandHandler commandHandler);
+    void begin(const SettingsBundle& settings, AppState& appState, WiFiManager& wifiManager, CommandHandler commandHandler, LightEffectsGetter lightEffectsGetter = nullptr);
     void applySettings(const SettingsBundle& settings);
     void loop();
     void publishState();
@@ -34,6 +35,7 @@ class MqttManager {
     AppState* appState_ = nullptr;
     WiFiManager* wifiManager_ = nullptr;
     CommandHandler commandHandler_;
+    LightEffectsGetter lightEffectsGetter_;
     bool configured_ = false;
     bool connectionEnabled_ = true;
     bool recoveryRebootRecommended_ = false;

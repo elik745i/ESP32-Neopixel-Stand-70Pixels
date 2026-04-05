@@ -604,7 +604,21 @@ void setup() {
     otaManager->setProgressCallback(pumpOtaDisplayProgress);
 
     logBootStage("mqtt begin");
-    mqttManager->begin(*settings, *appState, *wifiManager, handleMqttCommand);
+    mqttManager->begin(
+        *settings,
+        *appState,
+        *wifiManager,
+        handleMqttCommand,
+        [](JsonArray effects) {
+            if (lightPlayer == nullptr) {
+                return;
+            }
+
+            const uint16_t effectCount = lightPlayer->effectCount();
+            for (uint16_t index = 0; index < effectCount; ++index) {
+                effects.add(lightPlayer->effectName(index));
+            }
+        });
 
     logBootStage("web begin");
     webServer->begin(
@@ -614,6 +628,16 @@ void setup() {
         *otaManager,
         []() { return *settings; },
         saveSettingsFromJson,
+        [](JsonArray effects) {
+            if (lightPlayer == nullptr) {
+                return;
+            }
+
+            const uint16_t effectCount = lightPlayer->effectCount();
+            for (uint16_t index = 0; index < effectCount; ++index) {
+                effects.add(lightPlayer->effectName(index));
+            }
+        },
         [](const String& url, const String& label, const String& type, String& error) {
             return playRequest(url, label, type, "", error);
         },

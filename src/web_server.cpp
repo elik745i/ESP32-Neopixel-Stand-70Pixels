@@ -47,6 +47,7 @@ void WebServerManager::begin(
     OtaManager& otaManager,
     SettingsGetter settingsGetter,
     SettingsSaver settingsSaver,
+    LightEffectsGetter lightEffectsGetter,
     PlayHandler playHandler,
     StopHandler stopHandler,
     VolumeHandler volumeHandler,
@@ -60,6 +61,7 @@ void WebServerManager::begin(
     otaManager_ = &otaManager;
     settingsGetter_ = settingsGetter;
     settingsSaver_ = settingsSaver;
+    lightEffectsGetter_ = lightEffectsGetter;
     playHandler_ = playHandler;
     stopHandler_ = stopHandler;
     volumeHandler_ = volumeHandler;
@@ -125,6 +127,17 @@ void WebServerManager::registerApiRoutes() {
         }
         JsonDocument doc;
         settingsManager_->toJson(settingsGetter_(), doc.to<JsonObject>());
+        sendJson(request, doc);
+    });
+
+    server_.on("/api/light/effects", HTTP_GET, [this](AsyncWebServerRequest* request) {
+        if (redirectCaptivePortalIfNeeded(request) || !ensureAuthorized(request)) {
+            return;
+        }
+        JsonDocument doc;
+        if (lightEffectsGetter_) {
+            lightEffectsGetter_(doc["effects"].to<JsonArray>());
+        }
         sendJson(request, doc);
     });
 

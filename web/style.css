@@ -513,6 +513,35 @@
     align-items: end;
   }
 
+  .light-header-inline {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 16px;
+    margin-bottom: 12px;
+    flex-wrap: wrap;
+  }
+
+  .light-header-inline h2 {
+    margin-bottom: 0;
+  }
+
+  .light-effect-preview-card {
+    display: grid;
+    place-items: center;
+    min-width: 180px;
+    min-height: 48px;
+    padding: 8px 12px;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: linear-gradient(180deg, #f7f7f7 0%, #efefef 100%);
+  }
+
+  #lightEffectPreview {
+    display: block;
+    image-rendering: pixelated;
+  }
+
   .oled-preview-card {
     display: grid;
     gap: 10px;
@@ -904,5 +933,10 @@
 
     .stat-value {
       font-size: 1.25rem;
+    }
+
+    .light-effect-preview-card {
+      width: 100%;
+      min-width: 0;
     }
   }

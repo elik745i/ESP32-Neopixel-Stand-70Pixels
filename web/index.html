@@ -64,7 +64,12 @@
         </div>
 
         <div id="tab-playback" class="tab-panel" role="tabpanel">
-          <h2>Light</h2>
+          <div class="light-header-inline">
+            <h2>Light</h2>
+            <div class="light-effect-preview-card" aria-label="Selected light effect preview">
+              <canvas id="lightEffectPreview" width="0" height="0"></canvas>
+            </div>
+          </div>
           <form id="playForm">
             <div class="radio-browser-card">
               <div class="radio-browser-head">
@@ -90,27 +95,7 @@
             </div>
             <div class="row">
               <label>Effect
-                <select id="playType" name="type">
-                  <option value="Static">Static</option>
-                  <option value="Blink">Blink</option>
-                  <option value="Breath">Breath</option>
-                  <option value="Color Wipe">Color Wipe</option>
-                  <option value="Color Wipe Random">Color Wipe Random</option>
-                  <option value="Random Color">Random Color</option>
-                  <option value="Rainbow">Rainbow</option>
-                  <option value="Rainbow Cycle">Rainbow Cycle</option>
-                  <option value="Scan">Scan</option>
-                  <option value="Dual Scan">Dual Scan</option>
-                  <option value="Theater Chase">Theater Chase</option>
-                  <option value="Theater Chase Rainbow">Theater Chase Rainbow</option>
-                  <option value="Running Lights">Running Lights</option>
-                  <option value="Twinkle">Twinkle</option>
-                  <option value="Twinkle Random">Twinkle Random</option>
-                  <option value="Sparkle">Sparkle</option>
-                  <option value="Fire Flicker">Fire Flicker</option>
-                  <option value="Comet">Comet</option>
-                  <option value="Larson Scanner">Larson Scanner</option>
-                </select>
+                <select id="playType" name="type"></select>
               </label>
               <label>Current Output
                 <input id="currentUrl" type="text" readonly>

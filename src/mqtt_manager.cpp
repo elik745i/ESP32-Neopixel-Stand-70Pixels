@@ -45,6 +45,56 @@ String normalizeEffectName(const String& value) {
     return effect;
 }
 
+String normalizeRgbPayload(const String& value) {
+    String payload = value;
+    payload.trim();
+    if (payload.isEmpty()) {
+        return String();
+    }
+
+    if (payload.startsWith("#")) {
+        String hex = payload;
+        hex.toUpperCase();
+        return hex;
+    }
+
+    int firstSeparator = payload.indexOf(',');
+    if (firstSeparator < 0) {
+        firstSeparator = payload.indexOf(';');
+    }
+    if (firstSeparator < 0) {
+        return payload;
+    }
+
+    const char separator = payload[firstSeparator];
+    const int secondSeparator = payload.indexOf(separator, firstSeparator + 1);
+    if (secondSeparator < 0) {
+        return payload;
+    }
+
+    const int red = constrain(payload.substring(0, firstSeparator).toInt(), 0, 255);
+    const int green = constrain(payload.substring(firstSeparator + 1, secondSeparator).toInt(), 0, 255);
+    const int blue = constrain(payload.substring(secondSeparator + 1).toInt(), 0, 255);
+
+    char buffer[8];
+    snprintf(buffer, sizeof(buffer), "#%02X%02X%02X", red, green, blue);
+    return String(buffer);
+}
+
+String hexToRgbCsv(const String& value) {
+    String color = value;
+    color.trim();
+    if (!color.startsWith("#") || color.length() != 7) {
+        return String("255,255,255");
+    }
+
+    const long packed = strtol(color.substring(1).c_str(), nullptr, 16);
+    const int red = (packed >> 16) & 0xFF;
+    const int green = (packed >> 8) & 0xFF;
+    const int blue = packed & 0xFF;
+    return String(red) + "," + String(green) + "," + String(blue);
+}
+
 uint8_t percentFromVolumeLevel(float level) {
     const float clamped = level < 0.0f ? 0.0f : (level > 1.0f ? 1.0f : level);
     return static_cast<uint8_t>((clamped * 100.0f) + 0.5f);
@@ -94,10 +144,11 @@ String hacsVolumePayload(uint8_t volumePercent) {
 #endif
 }  // namespace
 
-void MqttManager::begin(const SettingsBundle& settings, AppState& appState, WiFiManager& wifiManager, CommandHandler commandHandler) {
+void MqttManager::begin(const SettingsBundle& settings, AppState& appState, WiFiManager& wifiManager, CommandHandler commandHandler, LightEffectsGetter lightEffectsGetter) {
     appState_ = &appState;
     wifiManager_ = &wifiManager;
     commandHandler_ = commandHandler;
+    lightEffectsGetter_ = lightEffectsGetter;
 
     client_.onConnect([this](bool sessionPresent) { handleConnected(sessionPresent); });
     client_.onDisconnect([this](AsyncMqttClientDisconnectReason reason) { handleDisconnected(reason); });
@@ -194,6 +245,7 @@ void MqttManager::handleConnected(bool sessionPresent) {
     client_.subscribe(HaBridge::commandTopic(settings_, "power").c_str(), 1);
     client_.subscribe(HaBridge::commandTopic(settings_, "effect").c_str(), 1);
     client_.subscribe(HaBridge::commandTopic(settings_, "color").c_str(), 1);
+    client_.subscribe(HaBridge::colorCommandTopic(settings_).c_str(), 1);
     client_.subscribe(HaBridge::commandTopic(settings_, "brightness").c_str(), 1);
 #ifdef APP_ENABLE_HACS_MQTT
     client_.subscribe(HaBridge::hacsMediaPlayerCommandTopic(settings_, "play").c_str(), 1);
@@ -290,9 +342,12 @@ void MqttManager::handleMessage(char* topic, char* payload, AsyncMqttClientMessa
         return;
     }
 
-    if (topicValue == HaBridge::commandTopic(settings_, "color")) {
+    if (topicValue == HaBridge::commandTopic(settings_, "color") ||
+        topicValue == HaBridge::colorCommandTopic(settings_)) {
         command.action = "color";
-        command.url = payloadValue;
+        command.url = topicValue == HaBridge::colorCommandTopic(settings_)
+            ? normalizeRgbPayload(payloadValue)
+            : payloadValue;
         commandHandler_(command);
         return;
     }
@@ -388,6 +443,7 @@ void MqttManager::publishState() {
     publishJson(HaBridge::batteryStateTopic(settings_), battery, true);
 
     client_.publish((settings_.mqtt.baseTopic + "/state/brightness").c_str(), 1, true, String(snapshot.playback.volumePercent).c_str());
+    client_.publish(HaBridge::colorStateTopic(settings_).c_str(), 1, true, hexToRgbCsv(snapshot.playback.url).c_str());
 #ifdef APP_ENABLE_HACS_MQTT
     client_.publish(HaBridge::hacsMediaPlayerStateTopic(settings_, "state").c_str(), 1, true, normalizedHacsPlaybackState(snapshot.playback.state).c_str());
     client_.publish(HaBridge::hacsMediaPlayerStateTopic(settings_, "title").c_str(), 1, true, snapshot.playback.title.c_str());
@@ -412,6 +468,9 @@ void MqttManager::publishDiscovery() {
         return;
     }
     client_.publish(
+        HaBridge::discoveryTopic(settings_, "light", "light").c_str(), 1, true,
+        HaBridge::discoveryPayloadLight(settings_, "light", "Light", lightEffectsGetter_).c_str());
+    client_.publish(
         HaBridge::discoveryTopic(settings_, "sensor", "battery_voltage").c_str(), 1, true,
         HaBridge::discoveryPayloadSensor(settings_, "battery_voltage", "Battery Voltage", HaBridge::batteryStateTopic(settings_).c_str(), "{{ value_json.voltage | float(0) | round(2) }}", "V", "voltage", "measurement", "mdi:battery", 2).c_str());
     client_.publish(
@@ -428,10 +487,20 @@ void MqttManager::publishDiscovery() {
         HaBridge::discoveryPayloadButton(settings_, "stop", "Turn Light Off", HaBridge::commandTopic(settings_, "stop").c_str(), "stop", "mdi:power").c_str());
     client_.publish(
         HaBridge::discoveryTopic(settings_, "text", "play_url").c_str(), 1, true,
-        HaBridge::discoveryPayloadText(settings_, "play_url", "Primary Color", HaBridge::commandTopic(settings_, "color").c_str(), "mdi:palette").c_str());
+        HaBridge::discoveryPayloadText(
+            settings_, "play_url", "Primary Color",
+            HaBridge::commandTopic(settings_, "color").c_str(),
+            HaBridge::playbackStateTopic(settings_).c_str(),
+            "{{ value_json.color }}",
+            "mdi:palette").c_str());
     client_.publish(
         HaBridge::discoveryTopic(settings_, "text", "light_effect").c_str(), 1, true,
-        HaBridge::discoveryPayloadText(settings_, "light_effect", "Light Effect", HaBridge::commandTopic(settings_, "effect").c_str(), "mdi:creation").c_str());
+        HaBridge::discoveryPayloadText(
+            settings_, "light_effect", "Light Effect",
+            HaBridge::commandTopic(settings_, "effect").c_str(),
+            HaBridge::playbackStateTopic(settings_).c_str(),
+            "{{ value_json.effect }}",
+            "mdi:creation").c_str());
 #ifdef APP_ENABLE_HACS_MQTT
     client_.publish(
         HaBridge::hacsMediaPlayerDiscoveryTopic(settings_).c_str(), 1, true,

@@ -1,6 +1,7 @@
 const state = {
   status: null,
   settings: null,
+  lightEffects: [],
   recentPlayback: loadRecentPlayback(),
   radioCountries: [],
   radioStations: [],
@@ -28,6 +29,8 @@ const state = {
   stationRedirectInProgress: false,
   playSelectionDirty: false,
 };
+
+let lightPreviewAnimationFrame = 0;
 
 const SETTINGS_AUTOSAVE_DELAY_MS = 900;
 const ACTIVE_TAB_STORAGE_KEY = "notifierActiveTab";
@@ -80,6 +83,7 @@ const elements = {
   playUrl: document.getElementById("playUrl"),
   playLabel: document.getElementById("playLabel"),
   playType: document.getElementById("playType"),
+  lightEffectPreview: document.getElementById("lightEffectPreview"),
   radioCountrySelect: document.getElementById("radioCountrySelect"),
   radioStationSelect: document.getElementById("radioStationSelect"),
   radioBrowserStatus: document.getElementById("radioBrowserStatus"),
@@ -119,6 +123,288 @@ function loadRecentPlayback() {
 
 function saveRecentPlayback() {
   window.localStorage.setItem("notifierRecentPlayback", JSON.stringify(state.recentPlayback.slice(0, 6)));
+}
+
+function currentSelectedEffectName() {
+  return String(elements.playType?.value || state.status?.playback?.title || "Static").trim() || "Static";
+}
+
+function currentSelectedPixelCount() {
+  const fieldValue = Number(namedField("light.pixelCount")?.value || state.settings?.light?.pixelCount || 70);
+  return Math.max(1, Math.min(600, Number.isFinite(fieldValue) ? Math.round(fieldValue) : 70));
+}
+
+function currentSelectedEffectIndex() {
+  const selectedName = currentSelectedEffectName();
+  const foundIndex = state.lightEffects.findIndex((effect) => effect === selectedName);
+  if (foundIndex >= 0) {
+    return foundIndex;
+  }
+  return Number(state.settings?.light?.effectIndex ?? 0);
+}
+
+function syncSelectedEffectFromState() {
+  if (!elements.playType || !state.lightEffects.length) {
+    return;
+  }
+
+  const statusTitle = String(state.status?.playback?.title || "").trim();
+  const settingsIndex = Number(state.settings?.light?.effectIndex ?? 0);
+  const effectName = statusTitle && state.lightEffects.includes(statusTitle)
+    ? statusTitle
+    : (state.lightEffects[settingsIndex] || state.lightEffects[0] || "Static");
+
+  if (!state.playSelectionDirty) {
+    elements.playType.value = effectName;
+  }
+}
+
+function populateLightEffects(effects) {
+  state.lightEffects = Array.isArray(effects)
+    ? effects.map((effect) => String(effect || "").trim()).filter(Boolean)
+    : [];
+
+  if (!elements.playType) {
+    return;
+  }
+
+  const selected = currentSelectedEffectName();
+  elements.playType.innerHTML = "";
+
+  const effectList = state.lightEffects.length ? state.lightEffects : ["Static"];
+  for (const effect of effectList) {
+    const option = document.createElement("option");
+    option.value = effect;
+    option.textContent = effect;
+    elements.playType.appendChild(option);
+  }
+
+  if (effectList.includes(selected)) {
+    elements.playType.value = selected;
+  } else {
+    syncSelectedEffectFromState();
+  }
+
+  renderLightEffectPreview();
+}
+
+async function loadLightEffects() {
+  const payload = await request("/api/light/effects");
+  populateLightEffects(payload?.effects || []);
+}
+
+function clampByte(value) {
+  return Math.max(0, Math.min(255, Math.round(value)));
+}
+
+function hexToRgb(value, fallback = { r: 255, g: 255, b: 255 }) {
+  const raw = String(value || "").trim();
+  const normalized = /^#?[0-9a-fA-F]{6}$/.test(raw) ? raw.replace("#", "") : null;
+  if (!normalized) {
+    return fallback;
+  }
+
+  return {
+    r: parseInt(normalized.slice(0, 2), 16),
+    g: parseInt(normalized.slice(2, 4), 16),
+    b: parseInt(normalized.slice(4, 6), 16),
+  };
+}
+
+function rgbToCss({ r, g, b }, alpha = 1) {
+  return `rgba(${clampByte(r)}, ${clampByte(g)}, ${clampByte(b)}, ${Math.max(0, Math.min(1, alpha))})`;
+}
+
+function mixColor(left, right, ratio) {
+  const weight = Math.max(0, Math.min(1, ratio));
+  return {
+    r: left.r + ((right.r - left.r) * weight),
+    g: left.g + ((right.g - left.g) * weight),
+    b: left.b + ((right.b - left.b) * weight),
+  };
+}
+
+function scaleColor(color, factor) {
+  return {
+    r: color.r * factor,
+    g: color.g * factor,
+    b: color.b * factor,
+  };
+}
+
+function hsvToRgb(h, s, v) {
+  const hue = ((h % 1) + 1) % 1;
+  const sector = Math.floor(hue * 6);
+  const fraction = (hue * 6) - sector;
+  const p = v * (1 - s);
+  const q = v * (1 - (fraction * s));
+  const t = v * (1 - ((1 - fraction) * s));
+  const table = [
+    [v, t, p],
+    [q, v, p],
+    [p, v, t],
+    [p, q, v],
+    [t, p, v],
+    [v, p, q],
+  ][sector % 6];
+
+  return {
+    r: table[0] * 255,
+    g: table[1] * 255,
+    b: table[2] * 255,
+  };
+}
+
+function previewHash(index, seed) {
+  const value = Math.sin((index * 12.9898) + (seed * 78.233)) * 43758.5453;
+  return value - Math.floor(value);
+}
+
+function previewPalette() {
+  return {
+    primary: hexToRgb(elements.playUrl?.value || state.settings?.light?.primaryColor || "#ffffff"),
+    secondary: hexToRgb(elements.playLabel?.value || state.settings?.light?.secondaryColor || "#000000", { r: 0, g: 0, b: 0 }),
+    tertiary: hexToRgb(state.settings?.light?.tertiaryColor || "#ff7b00", { r: 255, g: 123, b: 0 }),
+  };
+}
+
+function previewSpeedFactor() {
+  const raw = Number(namedField("light.effectSpeed")?.value || state.settings?.light?.effectSpeed || 128);
+  return Math.max(0.2, raw / 128);
+}
+
+function previewColorForEffect(effectName, index, pixelCount, timeSeconds, palette) {
+  const effect = String(effectName || "Static").toLowerCase();
+  const position = pixelCount <= 1 ? 0 : index / (pixelCount - 1);
+  const speed = previewSpeedFactor();
+  const travel = timeSeconds * speed;
+
+  if (effect.includes("rainbow")) {
+    const offset = effect.includes("cycle") ? (position + travel * 0.15) : (travel * 0.15 + (index / Math.max(1, pixelCount)));
+    return hsvToRgb(offset, 0.95, 1.0);
+  }
+
+  if (effect.includes("blink") || effect.includes("strobe")) {
+    const on = Math.floor(travel * 3.5) % 2 === 0;
+    return on ? palette.primary : scaleColor(palette.secondary, 0.15);
+  }
+
+  if (effect.includes("breath") || effect.includes("fade")) {
+    const level = 0.2 + (0.8 * ((Math.sin(travel * 2) + 1) / 2));
+    return scaleColor(palette.primary, level);
+  }
+
+  if (effect.includes("wipe")) {
+    const front = Math.floor((travel * 6) % (pixelCount + 6));
+    if (index <= front) {
+      if (effect.includes("random")) {
+        return hsvToRgb(previewHash(index, Math.floor(travel * 2)), 0.85, 1.0);
+      }
+      return mixColor(palette.primary, palette.secondary, position * 0.35);
+    }
+    return scaleColor(palette.secondary, 0.2);
+  }
+
+  if (effect.includes("scan") || effect.includes("larson") || effect.includes("comet")) {
+    const wave = (Math.sin(travel * 2) + 1) / 2;
+    const head = effect.includes("dual") ? [wave * (pixelCount - 1), (1 - wave) * (pixelCount - 1)] : [wave * (pixelCount - 1)];
+    let glow = 0;
+    for (const point of head) {
+      glow = Math.max(glow, Math.max(0, 1 - (Math.abs(index - point) / 6)));
+    }
+    return mixColor(scaleColor(palette.secondary, 0.12), palette.primary, glow);
+  }
+
+  if (effect.includes("chase")) {
+    const phase = Math.floor(travel * 8);
+    const slot = (index + phase) % 6;
+    if (effect.includes("rainbow")) {
+      return slot < 3 ? hsvToRgb((index / Math.max(1, pixelCount)) + (travel * 0.12), 0.9, 1.0) : scaleColor(palette.secondary, 0.15);
+    }
+    return slot < 3 ? palette.primary : scaleColor(palette.secondary, 0.15);
+  }
+
+  if (effect.includes("running") || effect.includes("wave")) {
+    const level = 0.15 + (0.85 * ((Math.sin((position * 10) - (travel * 4)) + 1) / 2));
+    return mixColor(palette.secondary, palette.primary, level);
+  }
+
+  if (effect.includes("twinkle") || effect.includes("sparkle")) {
+    const sparkle = previewHash(index, Math.floor(travel * 10));
+    const threshold = effect.includes("random") ? 0.82 : 0.9;
+    return sparkle > threshold ? mixColor(palette.primary, palette.tertiary, sparkle) : scaleColor(palette.secondary, 0.12);
+  }
+
+  if (effect.includes("fire") || effect.includes("flicker") || effect.includes("candle")) {
+    const heat = 0.35 + (previewHash(index, Math.floor(travel * 12)) * 0.65);
+    return mixColor({ r: 90, g: 10, b: 0 }, palette.tertiary, heat);
+  }
+
+  if (effect.includes("random")) {
+    return hsvToRgb(previewHash(index, Math.floor(travel * 3)), 0.85, 1.0);
+  }
+
+  if (effect.includes("static")) {
+    return palette.primary;
+  }
+
+  const fallbackLevel = 0.15 + (0.85 * ((Math.sin((position * 8) + (travel * 3)) + 1) / 2));
+  return mixColor(palette.secondary, palette.primary, fallbackLevel);
+}
+
+function renderLightEffectPreviewFrame(timestamp) {
+  const canvas = elements.lightEffectPreview;
+  if (!canvas) {
+    return;
+  }
+
+  const pixelCount = currentSelectedPixelCount();
+  const pixelSize = 5;
+  const pixelGap = 1;
+  const columnCount = Math.max(6, Math.min(16, Math.ceil(Math.sqrt(pixelCount * 1.8))));
+  const rowCount = Math.ceil(pixelCount / columnCount);
+  const width = (columnCount * (pixelSize + pixelGap)) - pixelGap;
+  const height = (rowCount * (pixelSize + pixelGap)) - pixelGap;
+
+  if (canvas.width !== width || canvas.height !== height) {
+    canvas.width = width;
+    canvas.height = height;
+    canvas.style.width = `${width}px`;
+    canvas.style.height = `${height}px`;
+  }
+
+  const context = canvas.getContext("2d");
+  if (!context) {
+    return;
+  }
+
+  context.clearRect(0, 0, width, height);
+  const effectName = currentSelectedEffectName();
+  const palette = previewPalette();
+  const timeSeconds = timestamp / 1000;
+
+  for (let index = 0; index < pixelCount; index += 1) {
+    const column = index % columnCount;
+    const row = Math.floor(index / columnCount);
+    const color = previewColorForEffect(effectName, index, pixelCount, timeSeconds, palette);
+    context.fillStyle = rgbToCss(color);
+    context.fillRect(column * (pixelSize + pixelGap), row * (pixelSize + pixelGap), pixelSize, pixelSize);
+  }
+
+  lightPreviewAnimationFrame = window.requestAnimationFrame(renderLightEffectPreviewFrame);
+}
+
+function renderLightEffectPreview() {
+  if (lightPreviewAnimationFrame) {
+    window.cancelAnimationFrame(lightPreviewAnimationFrame);
+    lightPreviewAnimationFrame = 0;
+  }
+
+  if (!elements.lightEffectPreview) {
+    return;
+  }
+
+  lightPreviewAnimationFrame = window.requestAnimationFrame(renderLightEffectPreviewFrame);
 }
 
 function loadSavedRadioSelection() {
@@ -863,6 +1149,8 @@ function fillForm(data) {
   updateLowBatterySleepUi();
   updateConditionalVisibility();
   renderOledPreview();
+  syncSelectedEffectFromState();
+  renderLightEffectPreview();
   state.settingsDirty = false;
   state.settingsLoading = false;
 }
@@ -939,7 +1227,7 @@ function collectForm() {
   payload.light.dataPin = Number(payload.light.dataPin || 16);
   payload.light.pixelCount = Number(payload.light.pixelCount || 70);
   payload.light.powerLimiterAmps = Number(payload.light.powerLimiterAmps || 2.0);
-  payload.light.effectIndex = Number(state.settings?.light?.effectIndex ?? payload.light.effectIndex ?? 0);
+  payload.light.effectIndex = currentSelectedEffectIndex();
   payload.light.effectSpeed = Number(payload.light.effectSpeed || 128);
   payload.light.effectIntensity = Number(payload.light.effectIntensity || 128);
   payload.device.lowBatterySleepThresholdPercent = Number(payload.device.lowBatterySleepThresholdPercent || 20);
@@ -1167,7 +1455,9 @@ function renderStatus(status) {
   elements.currentTitle.textContent = status.playback.title || "Off";
   elements.currentUrl.value = status.playback.url || "";
   if (!state.playSelectionDirty && elements.playType && status.playback.title) {
-    elements.playType.value = status.playback.title;
+    if (state.lightEffects.includes(status.playback.title)) {
+      elements.playType.value = status.playback.title;
+    }
   }
   if (document.activeElement !== elements.volumeSlider) {
     elements.volumeSlider.value = savedVolumePercent;
@@ -1238,6 +1528,7 @@ function renderStatus(status) {
   updateWifiActionButton();
   updateMqttActionButton();
   renderOledPreview();
+  renderLightEffectPreview();
 }
 
 function updateWifiActionButton() {
@@ -1887,7 +2178,10 @@ elements.localFirmwareFile?.addEventListener("change", () => {
 elements.playForm.addEventListener("submit", (event) => handlePlaybackAction(event).catch(handleError));
 elements.playUrl?.addEventListener("input", markPlaybackFormDirty);
 elements.playLabel?.addEventListener("input", markPlaybackFormDirty);
-elements.playType?.addEventListener("change", markPlaybackFormDirty);
+elements.playType?.addEventListener("change", () => {
+  markPlaybackFormDirty();
+  renderLightEffectPreview();
+});
 elements.radioCountrySelect?.addEventListener("change", (event) => {
   loadRadioStations(event.target.value).catch(handleError);
 });
@@ -1952,6 +2246,9 @@ for (const field of elements.settingsForm.elements) {
       if (field.name === "wifi.ssid" || field.name === "wifi.password") {
         updateWifiActionButton();
       }
+      if (field.name === "light.pixelCount" || field.name === "light.effectSpeed") {
+        renderLightEffectPreview();
+      }
       if (field.name?.startsWith("device.lowBattery")) {
         updateLowBatterySleepUi();
       }
@@ -1984,6 +2281,9 @@ for (const field of elements.settingsForm.elements) {
         setScanStatus("");
       }
     }
+    if (event.target.name === "light.pixelCount" || event.target.name === "light.effectSpeed") {
+      renderLightEffectPreview();
+    }
     if (event.target.name?.startsWith("device.lowBattery")) {
       updateLowBatterySleepUi();
     }
@@ -2015,8 +2315,9 @@ setupPasswordToggles();
 renderRecentPlayback();
 updateWifiActionButton();
 renderOledPreview();
+renderLightEffectPreview();
 
-Promise.all([loadStatus(), loadSettings()]).catch(handleError);
+Promise.all([loadLightEffects(), loadStatus(), loadSettings()]).catch(handleError);
 
 window.setInterval(() => {
   loadStatus().catch((error) => console.error(error));

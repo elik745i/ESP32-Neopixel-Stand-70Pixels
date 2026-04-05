@@ -5,6 +5,28 @@
 #include "version.h"
 
 namespace {
+constexpr const char* kLightEffects[] = {
+    "Static",
+    "Blink",
+    "Breath",
+    "Color Wipe",
+    "Color Wipe Random",
+    "Random Color",
+    "Rainbow",
+    "Rainbow Cycle",
+    "Scan",
+    "Dual Scan",
+    "Theater Chase",
+    "Theater Chase Rainbow",
+    "Running Lights",
+    "Twinkle",
+    "Twinkle Random",
+    "Sparkle",
+    "Fire Flicker",
+    "Comet",
+    "Larson Scanner",
+};
+
 void fillDevice(const SettingsBundle& settings, JsonObject device) {
     JsonArray ids = device["identifiers"].to<JsonArray>();
     ids.add(settings.device.deviceName);
@@ -27,6 +49,10 @@ String availabilityTopic(const SettingsBundle& settings) {
 
 String playbackStateTopic(const SettingsBundle& settings) {
     return settings.mqtt.baseTopic + "/state/light";
+}
+
+String colorStateTopic(const SettingsBundle& settings) {
+    return settings.mqtt.baseTopic + "/state/color_rgb";
 }
 
 String networkStateTopic(const SettingsBundle& settings) {
@@ -55,6 +81,10 @@ String commandTopic(const SettingsBundle& settings, const char* command) {
     return settings.mqtt.baseTopic + "/cmd/" + command;
 }
 
+String colorCommandTopic(const SettingsBundle& settings) {
+    return settings.mqtt.baseTopic + "/cmd/color_rgb";
+}
+
 String entityUniqueId(const SettingsBundle& settings, const char* suffix) {
     String id = settings.device.deviceName;
     id.replace(" ", "_");
@@ -81,6 +111,44 @@ String discoveryPayloadSensor(const SettingsBundle& settings, const char* object
     if (icon != nullptr) doc["ic"] = icon;
     if (suggestedDisplayPrecision >= 0) doc["suggested_display_precision"] = suggestedDisplayPrecision;
     fillDevice(settings, doc["dev"].to<JsonObject>());
+    String out;
+    serializeJson(doc, out);
+    return out;
+}
+
+String discoveryPayloadLight(const SettingsBundle& settings, const char* objectId, const char* name, LightEffectsGetter lightEffectsGetter) {
+    JsonDocument doc;
+    doc["name"] = name;
+    doc["unique_id"] = entityUniqueId(settings, objectId);
+    doc["availability_topic"] = availabilityTopic(settings);
+    doc["payload_available"] = "online";
+    doc["payload_not_available"] = "offline";
+    doc["command_topic"] = commandTopic(settings, "power");
+    doc["payload_on"] = "ON";
+    doc["payload_off"] = "OFF";
+    doc["state_topic"] = playbackStateTopic(settings);
+    doc["state_value_template"] = "{{ 'ON' if value_json.state in ['playing', 'buffering'] else 'OFF' }}";
+    doc["brightness_command_topic"] = commandTopic(settings, "brightness");
+    doc["brightness_state_topic"] = settings.mqtt.baseTopic + "/state/brightness";
+    doc["brightness_scale"] = 100;
+    doc["rgb_command_topic"] = colorCommandTopic(settings);
+    doc["rgb_state_topic"] = colorStateTopic(settings);
+    doc["effect_command_topic"] = commandTopic(settings, "effect");
+    doc["effect_state_topic"] = playbackStateTopic(settings);
+    doc["effect_value_template"] = "{{ value_json.effect }}";
+    doc["optimistic"] = false;
+
+    JsonArray effectList = doc["effect_list"].to<JsonArray>();
+    if (lightEffectsGetter) {
+        lightEffectsGetter(effectList);
+    }
+    if (effectList.size() == 0) {
+        for (const char* effect : kLightEffects) {
+            effectList.add(effect);
+        }
+    }
+
+    fillDevice(settings, doc["device"].to<JsonObject>());
     String out;
     serializeJson(doc, out);
     return out;
@@ -119,11 +187,13 @@ String discoveryPayloadButton(const SettingsBundle& settings, const char* object
     return out;
 }
 
-String discoveryPayloadText(const SettingsBundle& settings, const char* objectId, const char* name, const char* commandTopicValue, const char* icon) {
+String discoveryPayloadText(const SettingsBundle& settings, const char* objectId, const char* name, const char* commandTopicValue, const char* stateTopic, const char* valueTemplate, const char* icon) {
     JsonDocument doc;
     doc["name"] = name;
     doc["uniq_id"] = entityUniqueId(settings, objectId);
     doc["cmd_t"] = commandTopicValue;
+    if (stateTopic != nullptr) doc["stat_t"] = stateTopic;
+    if (valueTemplate != nullptr) doc["val_tpl"] = valueTemplate;
     doc["mode"] = "text";
     doc["avty_t"] = availabilityTopic(settings);
     if (icon != nullptr) doc["ic"] = icon;
