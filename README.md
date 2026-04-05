@@ -94,7 +94,7 @@ Current light controls:
 - brightness
 - effect selection
 - effect speed
-- effect intensity
+- effect intensity placeholder in UI is currently disabled because the bundled WS2812FX version does not expose a compatible runtime control
 - power limiter in amps
 - pixel count
 - primary and secondary colors
@@ -186,7 +186,7 @@ Typical release flow for this repository:
 
 Current firmware version in this working tree:
 
-- `v0.1.1`
+- `v0.1.2`
 
 Current default hardware profile in this working tree:
 

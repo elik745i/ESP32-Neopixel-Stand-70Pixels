@@ -27,7 +27,7 @@ namespace DefaultConfig {
 constexpr char WIFI_SSID[] = "";
 constexpr char WIFI_PASSWORD[] = "";
 constexpr bool WIFI_AP_FALLBACK_ENABLED = true;
-constexpr char WIFI_AP_SSID_PREFIX[] = "ESP32-NeoPixel";
+constexpr char WIFI_AP_SSID_PREFIX[] = "ESP32-FloorStand";
 constexpr char WIFI_AP_PASSWORD[] = "configureme";
 
 constexpr char DEVICE_NAME[] = "esp32-neopixel-stand-70pixel";

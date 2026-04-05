@@ -179,6 +179,7 @@ bool previousWifiConnected = false;
 bool previousMqttConnected = false;
 String previousPlaybackState = "idle";
 bool transitionStateInitialized = false;
+bool onboardingConnectedEffectApplied = false;
 
 constexpr float kBatteryPercentEmptyVoltage = 3.2f;
 constexpr float kBatteryPercentFullVoltage = 4.2f;
@@ -322,6 +323,19 @@ void pumpOtaDisplayProgress() {
     displayManager->loop(appState->snapshot());
 }
 
+void applyOnboardingConnectedEffect() {
+    if (settings == nullptr || audioPlayer == nullptr || settings->usingSavedSettings || onboardingConnectedEffectApplied) {
+        return;
+    }
+
+    settings->device.savedVolumePercent = DefaultConfig::DEFAULT_VOLUME_PERCENT;
+    settings->light.effectIndex = audioPlayer->findEffectIndex("Rainbow");
+    settings->light.powerEnabled = true;
+    audioPlayer->setVolumePercent(DefaultConfig::DEFAULT_VOLUME_PERCENT);
+    audioPlayer->play(settings->light.primaryColor, settings->light.secondaryColor, String(settings->light.effectIndex), "system");
+    onboardingConnectedEffectApplied = true;
+}
+
 bool initializeRuntimeObjects() {
     if (appState == nullptr) {
         appState = new AppState();
@@ -454,6 +468,7 @@ void processDeferredActions() {
     if (deferredActions->settingsApplyPending) {
         settingsManager->save(deferredActions->pendingSettings);
         *settings = settingsManager->load();
+        onboardingConnectedEffectApplied = false;
         applyRuntimeSettings();
         deferredActions->settingsApplyPending = false;
         mqttManager->publishState();
@@ -601,6 +616,9 @@ void processSoundEffectTransitions(const AppStateSnapshot& snapshot) {
         return;
     }
     if (!transitionStateInitialized) {
+        if (snapshot.network.wifiConnected) {
+            applyOnboardingConnectedEffect();
+        }
         previousWifiConnected = snapshot.network.wifiConnected;
         previousMqttConnected = snapshot.network.mqttConnected;
         previousPlaybackState = snapshot.playback.state;
@@ -609,8 +627,10 @@ void processSoundEffectTransitions(const AppStateSnapshot& snapshot) {
     }
 
     if (!previousWifiConnected && snapshot.network.wifiConnected) {
+        applyOnboardingConnectedEffect();
         soundEffects->playWifiConnected();
     } else if (previousWifiConnected && !snapshot.network.wifiConnected) {
+        onboardingConnectedEffectApplied = false;
         soundEffects->playWifiDisconnected();
     }
 

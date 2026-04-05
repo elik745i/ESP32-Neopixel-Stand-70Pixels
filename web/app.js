@@ -25,6 +25,8 @@ const state = {
   wifiConnectInProgress: false,
   mqttConnectInProgress: false,
   mqttActionInProgress: "",
+  stationRedirectInProgress: false,
+  playSelectionDirty: false,
 };
 
 const SETTINGS_AUTOSAVE_DELAY_MS = 900;
@@ -382,6 +384,8 @@ function applySelectedRadioStation() {
     elements.playType.value = "stream";
   }
 
+  markPlaybackFormDirty();
+
   saveRadioSelection({
     country: elements.radioCountrySelect?.value || "",
     stationName: station.name,
@@ -540,6 +544,42 @@ function setMqttConnectStatus(message, isError = false) {
   }
   elements.mqttConnectStatus.textContent = message;
   elements.mqttConnectStatus.style.color = isError ? "#b42318" : "";
+}
+
+function isApHost() {
+  const host = String(window.location.hostname || "").trim();
+  return host === "192.168.4.1";
+}
+
+function maybeRedirectToStationIp(status) {
+  if (state.stationRedirectInProgress) {
+    return;
+  }
+
+  const stationIp = String(status?.network?.ip || "").trim();
+  if (!status?.network?.wifiConnected || !stationIp || stationIp === window.location.hostname || !isApHost()) {
+    return;
+  }
+
+  state.stationRedirectInProgress = true;
+  setMessage(`Wi-Fi connected. Redirecting to ${stationIp}...`);
+  window.setTimeout(() => {
+    window.location.href = `http://${stationIp}${window.location.pathname}${window.location.hash}`;
+  }, 1200);
+}
+
+function selectedEffectName() {
+  return String(elements.playType?.value || state.status?.playback?.title || "Static").trim() || "Static";
+}
+
+function markPlaybackFormDirty() {
+  state.playSelectionDirty = true;
+  updatePlaybackActionButton();
+}
+
+function clearPlaybackFormDirty() {
+  state.playSelectionDirty = false;
+  updatePlaybackActionButton();
 }
 
 function isNumericLikeField(field) {
@@ -770,13 +810,13 @@ function fillForm(data) {
   if (elements.batteryMeasuredVoltage && measuredVoltage) {
     elements.batteryMeasuredVoltage.value = Number(measuredVoltage).toFixed(3);
   }
-  if (elements.playUrl && data.light?.primaryColor) {
+  if (!state.playSelectionDirty && elements.playUrl && data.light?.primaryColor) {
     elements.playUrl.value = data.light.primaryColor;
   }
-  if (elements.playLabel && data.light?.secondaryColor) {
+  if (!state.playSelectionDirty && elements.playLabel && data.light?.secondaryColor) {
     elements.playLabel.value = data.light.secondaryColor;
   }
-  if (elements.playType && state.status?.playback?.title) {
+  if (!state.playSelectionDirty && elements.playType && state.status?.playback?.title) {
     elements.playType.value = state.status.playback.title;
   }
   updateDerivedBatteryCalibration();
@@ -854,10 +894,13 @@ function collectForm() {
   payload.device.savedVolumePercent = Number(elements.volumeSlider?.value || payload.device.savedVolumePercent || 5);
   payload.light ||= {};
   payload.light.powerEnabled = Boolean(elements.audioMutedToggle?.checked ?? payload.light.powerEnabled ?? true);
+  payload.light.primaryColor = String(elements.playUrl?.value || state.settings?.light?.primaryColor || "#ffffff");
+  payload.light.secondaryColor = String(elements.playLabel?.value || state.settings?.light?.secondaryColor || "#000000");
+  payload.light.tertiaryColor = String(state.settings?.light?.tertiaryColor || payload.light.tertiaryColor || "#ff7b00");
   payload.light.dataPin = Number(payload.light.dataPin || 16);
   payload.light.pixelCount = Number(payload.light.pixelCount || 70);
   payload.light.powerLimiterAmps = Number(payload.light.powerLimiterAmps || 2.0);
-  payload.light.effectIndex = Number(payload.light.effectIndex || 0);
+  payload.light.effectIndex = Number(state.settings?.light?.effectIndex ?? payload.light.effectIndex ?? 0);
   payload.light.effectSpeed = Number(payload.light.effectSpeed || 128);
   payload.light.effectIntensity = Number(payload.light.effectIntensity || 128);
   payload.device.lowBatterySleepThresholdPercent = Number(payload.device.lowBatterySleepThresholdPercent || 20);
@@ -948,6 +991,7 @@ function renderRecentPlayback() {
       document.getElementById("playUrl").value = item.url;
       document.getElementById("playLabel").value = item.label || "";
       document.getElementById("playType").value = item.type || "Static";
+      markPlaybackFormDirty();
       toast("Loaded recent light preset");
     });
   }
@@ -1058,6 +1102,7 @@ function renderWifiHero(connected, ipAddress, rssi) {
 
 function renderStatus(status) {
   state.status = status;
+  maybeRedirectToStationIp(status);
   const ota = status.otaManager || status.ota || {};
   const wifiConnected = Boolean(status.network.wifiConnected);
   const mqttConnected = Boolean(status.network.mqttConnected);
@@ -1081,7 +1126,7 @@ function renderStatus(status) {
   elements.playbackState.textContent = playbackActive ? "On" : "Off";
   elements.currentTitle.textContent = status.playback.title || "Off";
   elements.currentUrl.value = status.playback.url || "";
-  if (elements.playType && status.playback.title) {
+  if (!state.playSelectionDirty && elements.playType && status.playback.title) {
     elements.playType.value = status.playback.title;
   }
   if (document.activeElement !== elements.volumeSlider) {
@@ -1184,8 +1229,9 @@ function updatePlaybackActionButton() {
   const playbackState = String(state.status?.playback?.state || "idle");
   const playbackActive = playbackState === "playing" || playbackState === "buffering";
 
-  elements.playbackActionButton.textContent = playbackActive ? "Turn Off" : "Apply";
-  elements.playbackActionButton.classList.toggle("secondary", playbackActive);
+  const applyMode = state.playSelectionDirty || !playbackActive;
+  elements.playbackActionButton.textContent = applyMode ? "Apply" : "Turn Off";
+  elements.playbackActionButton.classList.toggle("secondary", !applyMode);
   elements.playbackActionButton.disabled = false;
   elements.playbackActionButton.title = "";
 }
@@ -1576,7 +1622,9 @@ async function submitPlay(event) {
   renderRecentPlayback();
   setMessage("Light preset applied");
   toast("Light preset applied");
+  clearPlaybackFormDirty();
   await loadStatus();
+  await loadSettings();
 }
 
 async function setVolume(volumePercent) {
@@ -1612,7 +1660,7 @@ async function handlePlaybackAction(event) {
   const playbackState = String(state.status?.playback?.state || "idle");
   const playbackActive = playbackState === "playing" || playbackState === "buffering";
 
-  if (playbackActive) {
+  if (playbackActive && !state.playSelectionDirty) {
     await stopPlayback();
     return;
   }
@@ -1771,6 +1819,9 @@ elements.localFirmwareFile?.addEventListener("change", () => {
 });
 
 elements.playForm.addEventListener("submit", (event) => handlePlaybackAction(event).catch(handleError));
+elements.playUrl?.addEventListener("input", markPlaybackFormDirty);
+elements.playLabel?.addEventListener("input", markPlaybackFormDirty);
+elements.playType?.addEventListener("change", markPlaybackFormDirty);
 elements.radioCountrySelect?.addEventListener("change", (event) => {
   loadRadioStations(event.target.value).catch(handleError);
 });

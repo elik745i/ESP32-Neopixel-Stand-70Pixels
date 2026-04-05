@@ -76,7 +76,7 @@
                   <input name="light.effectSpeed" form="settingsForm" type="range" min="1" max="255" step="1" value="128">
                 </label>
                 <label>Intensity
-                  <input name="light.effectIntensity" form="settingsForm" type="range" min="1" max="255" step="1" value="128">
+                  <input name="light.effectIntensity" form="settingsForm" type="range" min="1" max="255" step="1" value="128" disabled>
                 </label>
               </div>
             </div>
@@ -164,7 +164,7 @@
             <div class="inline-actions">
               <button type="button" id="playbackActionButton">Apply</button>
               <button type="button" id="copyUrlButton" class="secondary">Copy Current Output</button>
-              <span id="playbackHint" class="scan-status">Recent light presets are stored locally in this browser.</span>
+              <span id="playbackHint" class="scan-status">Recent light presets are stored locally in this browser. Intensity is disabled because the current WS2812FX engine in this build does not expose a matching runtime control.</span>
             </div>
             <div class="volume-card">
               <label for="volumeSlider">Brightness <span id="volumeValue">0%</span></label>
@@ -204,7 +204,7 @@
             </label>
             <div class="row">
               <label>Access Point SSID
-                <input name="wifi.apSsid" type="text" autocomplete="off" placeholder="ESP32-Notifier-XXXXXX">
+                <input name="wifi.apSsid" type="text" autocomplete="off" placeholder="ESP32-FloorStand-XXXXXX">
               </label>
               <label>Access Point Password
                 <div class="password-field">

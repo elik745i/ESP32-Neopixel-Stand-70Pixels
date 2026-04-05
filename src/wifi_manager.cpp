@@ -146,6 +146,8 @@ void WiFiManager::loop() {
         dnsServer_.processNextRequest();
     }
 
+    processScan();
+
     const bool connected = WiFi.status() == WL_CONNECTED;
     if (connected) {
         if (!hadConnection_) {
@@ -393,14 +395,21 @@ int32_t WiFiManager::rssi() const {
 WiFiManager::ScanSnapshot WiFiManager::getScanSnapshot() const {
     const int scanState = WiFi.scanComplete();
     ScanSnapshot snapshot;
-    snapshot.active = scanState == WIFI_SCAN_RUNNING;
-    snapshot.complete = scanState >= 0 || (lastScanCompleted_ && lastScanStartedAt_ != 0);
-    snapshot.failed = lastScanStartedAt_ != 0 && !lastScanCompleted_ && scanState == WIFI_SCAN_FAILED;
+    snapshot.active = scanState == WIFI_SCAN_RUNNING || scanRetryPending_;
+    snapshot.complete = lastScanCompleted_;
+    snapshot.failed = scanFailed_;
     snapshot.ageMs = lastScanStartedAt_ == 0 ? 0 : millis() - lastScanStartedAt_;
     return snapshot;
 }
 
 bool WiFiManager::startScan() {
+    scanRequestActive_ = true;
+    scanRetryPending_ = false;
+    scanFailed_ = false;
+    lastScanCompleted_ = false;
+    scanAttemptCount_ = 0;
+    nextScanAttemptAt_ = 0;
+
     const int scanState = WiFi.scanComplete();
     if (scanState == WIFI_SCAN_RUNNING) {
         return true;
@@ -408,24 +417,12 @@ bool WiFiManager::startScan() {
     if (scanState >= 0 || scanState == WIFI_SCAN_FAILED) {
         WiFi.scanDelete();
     }
-    lastScanCompleted_ = false;
-    WiFi.enableSTA(true);
-    const int scanResult = WiFi.scanNetworks(true, true);
-    if (scanResult == WIFI_SCAN_FAILED) {
-        delay(50);
-        const int retryResult = WiFi.scanNetworks(true, true);
-        if (retryResult == WIFI_SCAN_FAILED) {
-            lastScanStartedAt_ = 0;
-            return false;
-        }
-    }
-    lastScanStartedAt_ = millis();
-    return true;
+    return launchScanAttempt(millis());
 }
 
 void WiFiManager::appendScanResultsJson(JsonArray networks) {
     const int networkCount = WiFi.scanComplete();
-    if (networkCount <= 0) {
+    if (networkCount < 0) {
         if (networkCount == WIFI_SCAN_FAILED) {
             WiFi.scanDelete();
         }
@@ -433,6 +430,9 @@ void WiFiManager::appendScanResultsJson(JsonArray networks) {
     }
 
     lastScanCompleted_ = true;
+    scanRequestActive_ = false;
+    scanRetryPending_ = false;
+    scanFailed_ = false;
 
     for (int index = 0; index < networkCount; ++index) {
         const String ssid = WiFi.SSID(index);
@@ -447,6 +447,80 @@ void WiFiManager::appendScanResultsJson(JsonArray networks) {
     }
 
     WiFi.scanDelete();
+}
+
+bool WiFiManager::launchScanAttempt(unsigned long now) {
+    const int scanState = WiFi.scanComplete();
+    if (scanState == WIFI_SCAN_RUNNING) {
+        return true;
+    }
+    if (scanState >= 0 || scanState == WIFI_SCAN_FAILED) {
+        WiFi.scanDelete();
+    }
+
+    WiFi.enableSTA(true);
+    ++scanAttemptCount_;
+    lastScanStartedAt_ = now;
+    nextScanAttemptAt_ = 0;
+    scanRetryPending_ = false;
+
+    if (WiFi.scanNetworks(true, true) == WIFI_SCAN_FAILED) {
+        if (scanAttemptCount_ < WIFI_SCAN_MAX_ATTEMPTS) {
+            scanRetryPending_ = true;
+            nextScanAttemptAt_ = now + WIFI_SCAN_RETRY_DELAY_MS;
+            Serial.printf("[wifi] scan attempt %u/%u failed to start, retry scheduled\n",
+                          static_cast<unsigned>(scanAttemptCount_),
+                          static_cast<unsigned>(WIFI_SCAN_MAX_ATTEMPTS));
+            return true;
+        }
+
+        scanRequestActive_ = false;
+        scanFailed_ = true;
+        Serial.printf("[wifi] scan failed after %u attempt(s)\n", static_cast<unsigned>(scanAttemptCount_));
+        return false;
+    }
+
+    return true;
+}
+
+void WiFiManager::processScan() {
+    if (!scanRequestActive_) {
+        return;
+    }
+
+    const unsigned long now = millis();
+    const int scanState = WiFi.scanComplete();
+    if (scanState == WIFI_SCAN_RUNNING) {
+        return;
+    }
+
+    if (scanState >= 0) {
+        lastScanCompleted_ = true;
+        scanRetryPending_ = false;
+        scanFailed_ = false;
+        return;
+    }
+
+    if (scanAttemptCount_ >= WIFI_SCAN_MAX_ATTEMPTS) {
+        scanRequestActive_ = false;
+        scanRetryPending_ = false;
+        scanFailed_ = true;
+        return;
+    }
+
+    if (!scanRetryPending_) {
+        scanRetryPending_ = true;
+        nextScanAttemptAt_ = now + WIFI_SCAN_RETRY_DELAY_MS;
+        Serial.printf("[wifi] scan attempt %u/%u failed, retry scheduled\n",
+                      static_cast<unsigned>(scanAttemptCount_),
+                      static_cast<unsigned>(WIFI_SCAN_MAX_ATTEMPTS));
+    }
+
+    if (now < nextScanAttemptAt_) {
+        return;
+    }
+
+    launchScanAttempt(now);
 }
 
 bool WiFiManager::shouldRedirectCaptivePortal(const String& hostHeader) const {

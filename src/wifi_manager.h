@@ -48,7 +48,9 @@ class WiFiManager {
     static constexpr uint16_t DNS_PORT = 53;
     static constexpr uint32_t WIFI_CONNECT_TIMEOUT_MS = 20000;
     static constexpr uint32_t WIFI_RETRY_INTERVAL_MS = 15000;
+    static constexpr uint32_t WIFI_SCAN_RETRY_DELAY_MS = 350;
     static constexpr uint8_t WIFI_MAX_CONSECUTIVE_FAILURES = 10;
+    static constexpr uint8_t WIFI_SCAN_MAX_ATTEMPTS = 4;
 
     SettingsBundle settings_;
     AppState* appState_ = nullptr;
@@ -57,14 +59,19 @@ class WiFiManager {
     bool dnsStarted_ = false;
     bool apMode_ = false;
     bool stationAttemptActive_ = false;
+    bool scanRequestActive_ = false;
+    bool scanRetryPending_ = false;
+    bool scanFailed_ = false;
     bool hadConnection_ = false;
     bool recoveryRebootRecommended_ = false;
     bool lastScanCompleted_ = false;
     bool lastDisconnectReasonValid_ = false;
+    uint8_t scanAttemptCount_ = 0;
     uint8_t consecutiveFailureCount_ = 0;
     unsigned long connectAttemptStartedAt_ = 0;
     unsigned long lastConnectAttemptAt_ = 0;
     unsigned long lastScanStartedAt_ = 0;
+    unsigned long nextScanAttemptAt_ = 0;
     wifi_event_id_t disconnectEventId_ = 0;
     wifi_err_reason_t lastDisconnectReason_ = WIFI_REASON_UNSPECIFIED;
     String apSsid_;
@@ -80,6 +87,8 @@ class WiFiManager {
     void clearFrontendError();
     void setFrontendError(const String& message);
     void handleDisconnectEvent(arduino_event_info_t info);
+    bool launchScanAttempt(unsigned long now);
+    void processScan();
     void registerFailedAttempt(const char* reason);
     PreferredAccessPoint findPreferredAccessPoint();
 };

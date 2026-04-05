@@ -102,7 +102,12 @@ class AudioPlayer::Impl {
         strip->init();
         strip->setBrightness(0);
         strip->setMode(0);
-        strip->setColor(parseColor(primaryColor));
+        uint32_t initialColors[] = {
+            parseColor(primaryColor),
+            parseColor(secondaryColor),
+            parseColor(tertiaryColor),
+        };
+        strip->setSegment(0, 0, pixelCount - 1, FX_MODE_STATIC, initialColors, speedToWs2812fx(effectSpeed));
         strip->start();
         strip->service();
     }
@@ -206,9 +211,12 @@ class AudioPlayer::Impl {
             strip->setColor(parseColor(AP_MODE_PRIMARY_COLOR));
             strip->setBrightness(0);
         } else {
-            strip->setMode(effectIndex);
-            strip->setSpeed(speedToWs2812fx(effectSpeed));
-            strip->setColor(parseColor(primaryColor));
+            uint32_t effectColors[] = {
+                parseColor(primaryColor),
+                parseColor(secondaryColor),
+                parseColor(tertiaryColor),
+            };
+            strip->setSegment(0, 0, pixelCount - 1, effectIndex, effectColors, speedToWs2812fx(effectSpeed));
             strip->setBrightness(powerEnabled ? map(effectiveBrightness(), 0, 100, 0, 255) : 0);
         }
         strip->start();
@@ -221,7 +229,11 @@ class AudioPlayer::Impl {
     }
 
     String currentUrlSummary() const {
-        String summary = primaryColor;
+        String summary = effectNameForIndex(effectIndex);
+        summary += " | ";
+        summary += primaryColor;
+        summary += " | ";
+        summary += secondaryColor;
         summary += " | ";
         summary += String(pixelCount);
         summary += " px | ";
