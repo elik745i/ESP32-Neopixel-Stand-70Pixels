@@ -376,7 +376,7 @@ class LightPlayer::Impl {
 
     void publish() {
         if (appState != nullptr) {
-            appState->setPlayback(state, type, title, currentUrlSummary(), source, volume);
+            appState->setPlayback(state, type, title, currentUrlSummary(), primaryColor, source, volume, powerEnabled);
         }
     }
 };

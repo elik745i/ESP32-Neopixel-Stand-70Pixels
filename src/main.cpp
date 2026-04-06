@@ -124,7 +124,7 @@ class LightPlayerStub {
     private:
     void publish() {
         if (appState_ != nullptr) {
-            appState_->setPlayback(state_, type_, title_, url_, source_, volume_);
+            appState_->setPlayback(state_, type_, title_, url_, "#FFFFFF", source_, volume_, false);
         }
     }
 
@@ -473,6 +473,8 @@ void handleMqttCommand(const PlaybackCommand& command) {
     } else if (command.action == "volume") {
         settings->device.savedVolumePercent = command.volumePercent;
         lightPlayer->setVolumePercent(command.volumePercent);
+        settings->light.powerEnabled = command.volumePercent > 0;
+        lightPlayer->setPowerEnabled(settings->light.powerEnabled);
         soundEffects->setVolumePercent(command.volumePercent);
         deferredActions->pendingVolume = command.volumePercent;
         deferredActions->volumePending = false;

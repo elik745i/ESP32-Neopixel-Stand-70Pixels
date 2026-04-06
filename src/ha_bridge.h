@@ -25,6 +25,8 @@ using LightEffectsGetter = std::function<void(JsonArray)>;
 
 String availabilityTopic(const SettingsBundle& settings);
 String playbackStateTopic(const SettingsBundle& settings);
+String lightPowerStateTopic(const SettingsBundle& settings);
+String lightEffectStateTopic(const SettingsBundle& settings);
 String colorStateTopic(const SettingsBundle& settings);
 String networkStateTopic(const SettingsBundle& settings);
 String batteryStateTopic(const SettingsBundle& settings);
@@ -40,13 +42,13 @@ String pixelCommandPrefix(const SettingsBundle& settings);
 String pixelCommandWildcardTopic(const SettingsBundle& settings);
 String entityUniqueId(const SettingsBundle& settings, const char* suffix);
 String discoveryTopic(const SettingsBundle& settings, const char* component, const char* objectId);
-String discoveryPayloadSensor(const SettingsBundle& settings, const char* objectId, const char* name, const char* stateTopic, const char* valueTemplate, const char* unit, const char* deviceClass, const char* stateClass, const char* icon = nullptr, int suggestedDisplayPrecision = -1);
-String discoveryPayloadLight(const SettingsBundle& settings, const char* objectId, const char* name, LightEffectsGetter lightEffectsGetter = nullptr);
-String discoveryPayloadNumber(const SettingsBundle& settings, const char* objectId, const char* name, const char* stateTopic, const char* commandTopic, int minValue, int maxValue, int step, const char* unit, const char* icon = nullptr);
-String discoveryPayloadButton(const SettingsBundle& settings, const char* objectId, const char* name, const char* commandTopic, const char* payloadPress, const char* icon = nullptr);
-String discoveryPayloadText(const SettingsBundle& settings, const char* objectId, const char* name, const char* commandTopic, const char* stateTopic = nullptr, const char* valueTemplate = nullptr, const char* icon = nullptr);
+String discoveryPayloadSensor(const SettingsBundle& settings, const char* objectId, const char* name, const char* stateTopic, const char* valueTemplate, const char* unit, const char* deviceClass, const char* stateClass, const char* icon = nullptr, int suggestedDisplayPrecision = -1, const String& configurationUrl = String());
+String discoveryPayloadLight(const SettingsBundle& settings, const char* objectId, const char* name, LightEffectsGetter lightEffectsGetter = nullptr, const String& configurationUrl = String());
+String discoveryPayloadNumber(const SettingsBundle& settings, const char* objectId, const char* name, const char* stateTopic, const char* commandTopic, int minValue, int maxValue, int step, const char* unit, const char* icon = nullptr, const String& configurationUrl = String());
+String discoveryPayloadButton(const SettingsBundle& settings, const char* objectId, const char* name, const char* commandTopic, const char* payloadPress, const char* icon = nullptr, const String& configurationUrl = String());
+String discoveryPayloadText(const SettingsBundle& settings, const char* objectId, const char* name, const char* commandTopic, const char* stateTopic = nullptr, const char* valueTemplate = nullptr, const char* icon = nullptr, const String& configurationUrl = String());
 #ifdef APP_ENABLE_HACS_MQTT
-String discoveryPayloadHacsMediaPlayer(const SettingsBundle& settings);
+String discoveryPayloadHacsMediaPlayer(const SettingsBundle& settings, const String& configurationUrl = String());
 #endif
 
 }  // namespace HaBridge

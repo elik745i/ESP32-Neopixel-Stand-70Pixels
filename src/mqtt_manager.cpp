@@ -100,6 +100,31 @@ uint8_t percentFromVolumeLevel(float level) {
     return static_cast<uint8_t>((clamped * 100.0f) + 0.5f);
 }
 
+uint8_t parseBrightnessPercent(const String& payload) {
+    String value = payload;
+    value.trim();
+    if (value.isEmpty()) {
+        return 0;
+    }
+
+    const float parsed = value.toFloat();
+    if (value.indexOf('.') >= 0) {
+        if (parsed >= 0.0f && parsed <= 1.0f) {
+            return percentFromVolumeLevel(parsed);
+        }
+        return static_cast<uint8_t>(constrain(static_cast<int>(parsed + 0.5f), 0, 100));
+    }
+
+    return static_cast<uint8_t>(constrain(value.toInt(), 0, 100));
+}
+
+String configurationUrlForSnapshot(const AppStateSnapshot& snapshot) {
+    if (!snapshot.network.ip.isEmpty()) {
+        return "http://" + snapshot.network.ip + "/";
+    }
+    return String();
+}
+
 #ifdef APP_ENABLE_HACS_MQTT
 [[maybe_unused]]
 String normalizedHacsPlaybackState(const String& value) {
@@ -319,9 +344,7 @@ void MqttManager::handleMessage(char* topic, char* payload, AsyncMqttClientMessa
 
     if (topicValue == HaBridge::hacsMediaPlayerCommandTopic(settings_, "volume")) {
         command.action = "volume";
-        command.volumePercent = payloadValue.indexOf('.') >= 0
-            ? percentFromVolumeLevel(payloadValue.toFloat())
-            : payloadValue.toInt();
+        command.volumePercent = parseBrightnessPercent(payloadValue);
         commandHandler_(command);
         return;
     }
@@ -407,9 +430,7 @@ void MqttManager::handleMessage(char* topic, char* payload, AsyncMqttClientMessa
                 }
             }
         } else {
-            command.volumePercent = payloadValue.indexOf('.') >= 0
-                ? percentFromVolumeLevel(payloadValue.toFloat())
-                : payloadValue.toInt();
+            command.volumePercent = parseBrightnessPercent(payloadValue);
         }
         commandHandler_(command);
         return;
@@ -462,10 +483,12 @@ void MqttManager::publishState() {
     playback["state"] = snapshot.playback.state;
     playback["effect"] = snapshot.playback.type;
     playback["title"] = snapshot.playback.title;
-    playback["color"] = snapshot.playback.url;
+    playback["color"] = snapshot.playback.primaryColor;
+    playback["details"] = snapshot.playback.url;
     playback["source"] = snapshot.playback.source;
     playback["brightness"] = snapshot.playback.volumePercent;
     playback["volumePercent"] = snapshot.playback.volumePercent;
+    playback["powerEnabled"] = snapshot.playback.powerEnabled;
     publishJson(HaBridge::playbackStateTopic(settings_), playback, true);
 
     JsonDocument network;
@@ -483,8 +506,10 @@ void MqttManager::publishState() {
     battery["rawAdc"] = snapshot.battery.rawAdc;
     publishJson(HaBridge::batteryStateTopic(settings_), battery, true);
 
+    client_.publish(HaBridge::lightPowerStateTopic(settings_).c_str(), 1, true, snapshot.playback.powerEnabled ? "ON" : "OFF");
+    client_.publish(HaBridge::lightEffectStateTopic(settings_).c_str(), 1, true, snapshot.playback.type.c_str());
     client_.publish((settings_.mqtt.baseTopic + "/state/brightness").c_str(), 1, true, String(snapshot.playback.volumePercent).c_str());
-    client_.publish(HaBridge::colorStateTopic(settings_).c_str(), 1, true, hexToRgbCsv(snapshot.playback.url).c_str());
+    client_.publish(HaBridge::colorStateTopic(settings_).c_str(), 1, true, hexToRgbCsv(snapshot.playback.primaryColor).c_str());
 #ifdef APP_ENABLE_HACS_MQTT
     client_.publish(HaBridge::hacsMediaPlayerStateTopic(settings_, "state").c_str(), 1, true, normalizedHacsPlaybackState(snapshot.playback.state).c_str());
     client_.publish(HaBridge::hacsMediaPlayerStateTopic(settings_, "title").c_str(), 1, true, snapshot.playback.title.c_str());
@@ -508,24 +533,25 @@ void MqttManager::publishDiscovery() {
     if (!client_.connected() || !settings_.mqtt.discoveryEnabled) {
         return;
     }
+    const String configurationUrl = appState_ == nullptr ? String() : configurationUrlForSnapshot(appState_->snapshot());
     client_.publish(
         HaBridge::discoveryTopic(settings_, "light", "light").c_str(), 1, true,
-        HaBridge::discoveryPayloadLight(settings_, "light", "Light", lightEffectsGetter_).c_str());
+        HaBridge::discoveryPayloadLight(settings_, "light", "Light", lightEffectsGetter_, configurationUrl).c_str());
     client_.publish(
         HaBridge::discoveryTopic(settings_, "sensor", "battery_voltage").c_str(), 1, true,
-        HaBridge::discoveryPayloadSensor(settings_, "battery_voltage", "Battery Voltage", HaBridge::batteryStateTopic(settings_).c_str(), "{{ value_json.voltage | float(0) | round(2) }}", "V", "voltage", "measurement", "mdi:battery", 2).c_str());
+        HaBridge::discoveryPayloadSensor(settings_, "battery_voltage", "Battery Voltage", HaBridge::batteryStateTopic(settings_).c_str(), "{{ value_json.voltage | float(0) | round(2) }}", "V", "voltage", "measurement", "mdi:battery", 2, configurationUrl).c_str());
     client_.publish(
         HaBridge::discoveryTopic(settings_, "sensor", "wifi_rssi").c_str(), 1, true,
-        HaBridge::discoveryPayloadSensor(settings_, "wifi_rssi", "Wi-Fi RSSI", HaBridge::networkStateTopic(settings_).c_str(), "{{ value_json.wifiRssi }}", "dBm", "signal_strength", "measurement", "mdi:wifi").c_str());
+        HaBridge::discoveryPayloadSensor(settings_, "wifi_rssi", "Wi-Fi RSSI", HaBridge::networkStateTopic(settings_).c_str(), "{{ value_json.wifiRssi }}", "dBm", "signal_strength", "measurement", "mdi:wifi", -1, configurationUrl).c_str());
     client_.publish(
         HaBridge::discoveryTopic(settings_, "sensor", "playback_state").c_str(), 1, true,
-        HaBridge::discoveryPayloadSensor(settings_, "playback_state", "Light State", HaBridge::playbackStateTopic(settings_).c_str(), "{{ value_json.state }}", nullptr, nullptr, nullptr, "mdi:led-strip-variant").c_str());
+        HaBridge::discoveryPayloadSensor(settings_, "playback_state", "Light State", HaBridge::playbackStateTopic(settings_).c_str(), "{{ value_json.state }}", nullptr, nullptr, nullptr, "mdi:led-strip-variant", -1, configurationUrl).c_str());
     client_.publish(
         HaBridge::discoveryTopic(settings_, "number", "volume").c_str(), 1, true,
-        HaBridge::discoveryPayloadNumber(settings_, "volume", "Light Brightness", (settings_.mqtt.baseTopic + "/state/brightness").c_str(), HaBridge::commandTopic(settings_, "brightness").c_str(), 0, 100, 1, "%", "mdi:brightness-6").c_str());
+        HaBridge::discoveryPayloadNumber(settings_, "volume", "Light Brightness", (settings_.mqtt.baseTopic + "/state/brightness").c_str(), HaBridge::commandTopic(settings_, "brightness").c_str(), 0, 100, 1, "%", "mdi:brightness-6", configurationUrl).c_str());
     client_.publish(
         HaBridge::discoveryTopic(settings_, "button", "stop").c_str(), 1, true,
-        HaBridge::discoveryPayloadButton(settings_, "stop", "Turn Light Off", HaBridge::commandTopic(settings_, "stop").c_str(), "stop", "mdi:power").c_str());
+        HaBridge::discoveryPayloadButton(settings_, "stop", "Turn Light Off", HaBridge::commandTopic(settings_, "stop").c_str(), "stop", "mdi:power", configurationUrl).c_str());
     client_.publish(
         HaBridge::discoveryTopic(settings_, "text", "play_url").c_str(), 1, true,
         HaBridge::discoveryPayloadText(
@@ -533,7 +559,8 @@ void MqttManager::publishDiscovery() {
             HaBridge::commandTopic(settings_, "color").c_str(),
             HaBridge::playbackStateTopic(settings_).c_str(),
             "{{ value_json.color }}",
-            "mdi:palette").c_str());
+            "mdi:palette",
+            configurationUrl).c_str());
     client_.publish(
         HaBridge::discoveryTopic(settings_, "text", "light_effect").c_str(), 1, true,
         HaBridge::discoveryPayloadText(
@@ -541,11 +568,12 @@ void MqttManager::publishDiscovery() {
             HaBridge::commandTopic(settings_, "effect").c_str(),
             HaBridge::playbackStateTopic(settings_).c_str(),
             "{{ value_json.effect }}",
-            "mdi:creation").c_str());
+            "mdi:creation",
+            configurationUrl).c_str());
 #ifdef APP_ENABLE_HACS_MQTT
     client_.publish(
         HaBridge::hacsMediaPlayerDiscoveryTopic(settings_).c_str(), 1, true,
-        HaBridge::discoveryPayloadHacsMediaPlayer(settings_).c_str());
+        HaBridge::discoveryPayloadHacsMediaPlayer(settings_, configurationUrl).c_str());
     client_.publish(
         HaBridge::discoveryTopic(settings_, "media_player", "hacs_player").c_str(), 1, true,
         "");

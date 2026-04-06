@@ -27,13 +27,16 @@ constexpr const char* kLightEffects[] = {
     "Larson Scanner",
 };
 
-void fillDevice(const SettingsBundle& settings, JsonObject device) {
+void fillDevice(const SettingsBundle& settings, JsonObject device, const String& configurationUrl = String()) {
     JsonArray ids = device["identifiers"].to<JsonArray>();
     ids.add(settings.device.deviceName);
     device["name"] = settings.device.friendlyName;
     device["manufacturer"] = "DIY";
     device["model"] = "ESP32-S3 NeoPixel Controller";
     device["sw_version"] = APP_VERSION;
+    if (!configurationUrl.isEmpty()) {
+        device["configuration_url"] = configurationUrl;
+    }
 }
 
 String baseDiscoveryPrefix() {
@@ -49,6 +52,14 @@ String availabilityTopic(const SettingsBundle& settings) {
 
 String playbackStateTopic(const SettingsBundle& settings) {
     return settings.mqtt.baseTopic + "/state/light";
+}
+
+String lightPowerStateTopic(const SettingsBundle& settings) {
+    return settings.mqtt.baseTopic + "/state/light_power";
+}
+
+String lightEffectStateTopic(const SettingsBundle& settings) {
+    return settings.mqtt.baseTopic + "/state/light_effect";
 }
 
 String colorStateTopic(const SettingsBundle& settings) {
@@ -110,7 +121,7 @@ String discoveryTopic(const SettingsBundle& settings, const char* component, con
     return baseDiscoveryPrefix() + "/" + component + "/" + settings.device.deviceName + "/" + objectId + "/config";
 }
 
-String discoveryPayloadSensor(const SettingsBundle& settings, const char* objectId, const char* name, const char* stateTopic, const char* valueTemplate, const char* unit, const char* deviceClass, const char* stateClass, const char* icon, int suggestedDisplayPrecision) {
+String discoveryPayloadSensor(const SettingsBundle& settings, const char* objectId, const char* name, const char* stateTopic, const char* valueTemplate, const char* unit, const char* deviceClass, const char* stateClass, const char* icon, int suggestedDisplayPrecision, const String& configurationUrl) {
     JsonDocument doc;
     doc["name"] = name;
     doc["uniq_id"] = entityUniqueId(settings, objectId);
@@ -122,13 +133,13 @@ String discoveryPayloadSensor(const SettingsBundle& settings, const char* object
     if (stateClass != nullptr) doc["stat_cla"] = stateClass;
     if (icon != nullptr) doc["ic"] = icon;
     if (suggestedDisplayPrecision >= 0) doc["suggested_display_precision"] = suggestedDisplayPrecision;
-    fillDevice(settings, doc["dev"].to<JsonObject>());
+    fillDevice(settings, doc["dev"].to<JsonObject>(), configurationUrl);
     String out;
     serializeJson(doc, out);
     return out;
 }
 
-String discoveryPayloadLight(const SettingsBundle& settings, const char* objectId, const char* name, LightEffectsGetter lightEffectsGetter) {
+String discoveryPayloadLight(const SettingsBundle& settings, const char* objectId, const char* name, LightEffectsGetter lightEffectsGetter, const String& configurationUrl) {
     JsonDocument doc;
     doc["name"] = name;
     doc["unique_id"] = entityUniqueId(settings, objectId);
@@ -138,16 +149,14 @@ String discoveryPayloadLight(const SettingsBundle& settings, const char* objectI
     doc["command_topic"] = commandTopic(settings, "power");
     doc["payload_on"] = "ON";
     doc["payload_off"] = "OFF";
-    doc["state_topic"] = playbackStateTopic(settings);
-    doc["state_value_template"] = "{{ 'ON' if value_json.state in ['playing', 'buffering'] else 'OFF' }}";
+    doc["state_topic"] = lightPowerStateTopic(settings);
     doc["brightness_command_topic"] = commandTopic(settings, "brightness");
     doc["brightness_state_topic"] = settings.mqtt.baseTopic + "/state/brightness";
     doc["brightness_scale"] = 100;
     doc["rgb_command_topic"] = colorCommandTopic(settings);
     doc["rgb_state_topic"] = colorStateTopic(settings);
     doc["effect_command_topic"] = commandTopic(settings, "effect");
-    doc["effect_state_topic"] = playbackStateTopic(settings);
-    doc["effect_value_template"] = "{{ value_json.effect }}";
+    doc["effect_state_topic"] = lightEffectStateTopic(settings);
     doc["optimistic"] = false;
 
     JsonArray effectList = doc["effect_list"].to<JsonArray>();
@@ -160,13 +169,13 @@ String discoveryPayloadLight(const SettingsBundle& settings, const char* objectI
         }
     }
 
-    fillDevice(settings, doc["device"].to<JsonObject>());
+    fillDevice(settings, doc["device"].to<JsonObject>(), configurationUrl);
     String out;
     serializeJson(doc, out);
     return out;
 }
 
-String discoveryPayloadNumber(const SettingsBundle& settings, const char* objectId, const char* name, const char* stateTopic, const char* commandTopicValue, int minValue, int maxValue, int step, const char* unit, const char* icon) {
+String discoveryPayloadNumber(const SettingsBundle& settings, const char* objectId, const char* name, const char* stateTopic, const char* commandTopicValue, int minValue, int maxValue, int step, const char* unit, const char* icon, const String& configurationUrl) {
     JsonDocument doc;
     doc["name"] = name;
     doc["uniq_id"] = entityUniqueId(settings, objectId);
@@ -179,13 +188,13 @@ String discoveryPayloadNumber(const SettingsBundle& settings, const char* object
     doc["mode"] = "box";
     if (unit != nullptr) doc["unit_of_meas"] = unit;
     if (icon != nullptr) doc["ic"] = icon;
-    fillDevice(settings, doc["dev"].to<JsonObject>());
+    fillDevice(settings, doc["dev"].to<JsonObject>(), configurationUrl);
     String out;
     serializeJson(doc, out);
     return out;
 }
 
-String discoveryPayloadButton(const SettingsBundle& settings, const char* objectId, const char* name, const char* commandTopicValue, const char* payloadPress, const char* icon) {
+String discoveryPayloadButton(const SettingsBundle& settings, const char* objectId, const char* name, const char* commandTopicValue, const char* payloadPress, const char* icon, const String& configurationUrl) {
     JsonDocument doc;
     doc["name"] = name;
     doc["uniq_id"] = entityUniqueId(settings, objectId);
@@ -193,13 +202,13 @@ String discoveryPayloadButton(const SettingsBundle& settings, const char* object
     doc["pl_prs"] = payloadPress;
     doc["avty_t"] = availabilityTopic(settings);
     if (icon != nullptr) doc["ic"] = icon;
-    fillDevice(settings, doc["dev"].to<JsonObject>());
+    fillDevice(settings, doc["dev"].to<JsonObject>(), configurationUrl);
     String out;
     serializeJson(doc, out);
     return out;
 }
 
-String discoveryPayloadText(const SettingsBundle& settings, const char* objectId, const char* name, const char* commandTopicValue, const char* stateTopic, const char* valueTemplate, const char* icon) {
+String discoveryPayloadText(const SettingsBundle& settings, const char* objectId, const char* name, const char* commandTopicValue, const char* stateTopic, const char* valueTemplate, const char* icon, const String& configurationUrl) {
     JsonDocument doc;
     doc["name"] = name;
     doc["uniq_id"] = entityUniqueId(settings, objectId);
@@ -209,14 +218,14 @@ String discoveryPayloadText(const SettingsBundle& settings, const char* objectId
     doc["mode"] = "text";
     doc["avty_t"] = availabilityTopic(settings);
     if (icon != nullptr) doc["ic"] = icon;
-    fillDevice(settings, doc["dev"].to<JsonObject>());
+    fillDevice(settings, doc["dev"].to<JsonObject>(), configurationUrl);
     String out;
     serializeJson(doc, out);
     return out;
 }
 
 #ifdef APP_ENABLE_HACS_MQTT
-String discoveryPayloadHacsMediaPlayer(const SettingsBundle& settings) {
+String discoveryPayloadHacsMediaPlayer(const SettingsBundle& settings, const String& configurationUrl) {
     JsonDocument doc;
     doc["name"] = settings.device.friendlyName;
     doc["unique_id"] = entityUniqueId(settings, "mqtt_media_player");
@@ -246,7 +255,7 @@ String discoveryPayloadHacsMediaPlayer(const SettingsBundle& settings) {
     doc["command_volume_topic"] = hacsMediaPlayerCommandTopic(settings, "volume");
     doc["command_playmedia_topic"] = hacsMediaPlayerCommandTopic(settings, "playmedia");
 
-    fillDevice(settings, doc["device"].to<JsonObject>());
+    fillDevice(settings, doc["device"].to<JsonObject>(), configurationUrl);
 
     String out;
     serializeJson(doc, out);
