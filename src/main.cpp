@@ -466,25 +466,49 @@ bool playRequest(const String& url, const String& label, const String& type, con
     return true;
 }
 
+void cancelPendingPlaybackActivation() {
+    if (deferredActions == nullptr) {
+        return;
+    }
+
+    deferredActions->playPending = false;
+    deferredActions->stopPending = false;
+}
+
 void handleMqttCommand(const PlaybackCommand& command) {
     bool publishImmediateState = true;
 
     if (command.action == "stop" || command.action == "pause") {
+        cancelPendingPlaybackActivation();
         lightPlayer->stop();
         settings->light.powerEnabled = false;
     } else if (command.action == "volume") {
         settings->device.savedVolumePercent = command.volumePercent;
+        if (command.volumePercent == 0) {
+            cancelPendingPlaybackActivation();
+        }
         lightPlayer->setVolumePercent(command.volumePercent);
         settings->light.powerEnabled = command.volumePercent > 0;
-        lightPlayer->setPowerEnabled(settings->light.powerEnabled);
+        if (settings->light.powerEnabled) {
+            lightPlayer->setPowerEnabled(true);
+        } else {
+            lightPlayer->stop();
+        }
         soundEffects->setVolumePercent(command.volumePercent);
         deferredActions->pendingVolume = command.volumePercent;
         deferredActions->volumePending = false;
         deferredActions->volumeSavePending = true;
         deferredActions->volumeSaveAt = millis() + kVolumePersistDelayMs;
     } else if (command.action == "power") {
+        if (!command.powerEnabled) {
+            cancelPendingPlaybackActivation();
+        }
         settings->light.powerEnabled = command.powerEnabled;
-        lightPlayer->setPowerEnabled(command.powerEnabled);
+        if (command.powerEnabled) {
+            lightPlayer->setPowerEnabled(true);
+        } else {
+            lightPlayer->stop();
+        }
         settingsManager->save(*settings);
     } else if (command.action == "effect") {
         settings->light.effectIndex = lightPlayer->findEffectIndex(command.mediaType.isEmpty() ? command.label : command.mediaType);
@@ -514,6 +538,7 @@ void handleMqttCommand(const PlaybackCommand& command) {
     } else if (command.action == "playpause") {
         const AppStateSnapshot snapshot = appState->snapshot();
         if (snapshot.playback.state == "playing" || snapshot.playback.state == "buffering") {
+            cancelPendingPlaybackActivation();
             lightPlayer->stop();
             settings->light.powerEnabled = false;
         } else if (!snapshot.playback.url.isEmpty()) {
