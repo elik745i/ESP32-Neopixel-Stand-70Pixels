@@ -118,6 +118,30 @@ uint8_t parseBrightnessPercent(const String& payload) {
     return static_cast<uint8_t>(constrain(value.toInt(), 0, 100));
 }
 
+bool parsePowerPayload(const String& payload, bool defaultValue) {
+    if (!payload.startsWith("{")) {
+        return !(payload.equalsIgnoreCase("0") || payload.equalsIgnoreCase("false") || payload.equalsIgnoreCase("off"));
+    }
+
+    JsonDocument doc;
+    if (deserializeJson(doc, payload) != DeserializationError::Ok) {
+        return defaultValue;
+    }
+
+    if (!doc["powerEnabled"].isNull()) {
+        return doc["powerEnabled"].as<bool>();
+    }
+    if (!doc["on"].isNull()) {
+        return doc["on"].as<bool>();
+    }
+    if (!doc["state"].isNull()) {
+        const String stateValue = String(static_cast<const char*>(doc["state"] | ""));
+        return !(stateValue.equalsIgnoreCase("0") || stateValue.equalsIgnoreCase("false") || stateValue.equalsIgnoreCase("off"));
+    }
+
+    return defaultValue;
+}
+
 String configurationUrlForSnapshot(const AppStateSnapshot& snapshot) {
     if (!snapshot.network.ip.isEmpty()) {
         return "http://" + snapshot.network.ip + "/";
@@ -362,15 +386,7 @@ void MqttManager::handleMessage(char* topic, char* payload, AsyncMqttClientMessa
 
     if (topicValue == HaBridge::commandTopic(settings_, "power")) {
         command.action = "power";
-        if (payloadValue.startsWith("{")) {
-            JsonDocument doc;
-            if (deserializeJson(doc, payloadValue) == DeserializationError::Ok) {
-                command.powerEnabled = doc["powerEnabled"] | doc["on"] | true;
-            }
-        } else {
-            const String lowered = payloadValue;
-            command.powerEnabled = !(lowered.equalsIgnoreCase("0") || lowered.equalsIgnoreCase("false") || lowered.equalsIgnoreCase("off"));
-        }
+        command.powerEnabled = parsePowerPayload(payloadValue, true);
         commandHandler_(command);
         return;
     }
@@ -478,6 +494,7 @@ void MqttManager::publishState() {
     }
     lastStatePublishAt_ = millis();
     const AppStateSnapshot snapshot = appState_->snapshot();
+    const uint8_t publishedBrightness = snapshot.playback.powerEnabled ? snapshot.playback.volumePercent : 0;
 
     JsonDocument playback;
     playback["state"] = snapshot.playback.state;
@@ -486,8 +503,8 @@ void MqttManager::publishState() {
     playback["color"] = snapshot.playback.primaryColor;
     playback["details"] = snapshot.playback.url;
     playback["source"] = snapshot.playback.source;
-    playback["brightness"] = snapshot.playback.volumePercent;
-    playback["volumePercent"] = snapshot.playback.volumePercent;
+    playback["brightness"] = publishedBrightness;
+    playback["volumePercent"] = publishedBrightness;
     playback["powerEnabled"] = snapshot.playback.powerEnabled;
     publishJson(HaBridge::playbackStateTopic(settings_), playback, true);
 
@@ -508,13 +525,13 @@ void MqttManager::publishState() {
 
     client_.publish(HaBridge::lightPowerStateTopic(settings_).c_str(), 1, true, snapshot.playback.powerEnabled ? "ON" : "OFF");
     client_.publish(HaBridge::lightEffectStateTopic(settings_).c_str(), 1, true, snapshot.playback.type.c_str());
-    client_.publish((settings_.mqtt.baseTopic + "/state/brightness").c_str(), 1, true, String(snapshot.playback.volumePercent).c_str());
+    client_.publish((settings_.mqtt.baseTopic + "/state/brightness").c_str(), 1, true, String(publishedBrightness).c_str());
     client_.publish(HaBridge::colorStateTopic(settings_).c_str(), 1, true, hexToRgbCsv(snapshot.playback.primaryColor).c_str());
 #ifdef APP_ENABLE_HACS_MQTT
     client_.publish(HaBridge::hacsMediaPlayerStateTopic(settings_, "state").c_str(), 1, true, normalizedHacsPlaybackState(snapshot.playback.state).c_str());
     client_.publish(HaBridge::hacsMediaPlayerStateTopic(settings_, "title").c_str(), 1, true, snapshot.playback.title.c_str());
     client_.publish(HaBridge::hacsMediaPlayerStateTopic(settings_, "mediatype").c_str(), 1, true, normalizedHacsMediaType(snapshot.playback.type).c_str());
-    client_.publish(HaBridge::hacsMediaPlayerStateTopic(settings_, "volume").c_str(), 1, true, hacsVolumePayload(snapshot.playback.volumePercent).c_str());
+    client_.publish(HaBridge::hacsMediaPlayerStateTopic(settings_, "volume").c_str(), 1, true, hacsVolumePayload(publishedBrightness).c_str());
 #endif
 }
 

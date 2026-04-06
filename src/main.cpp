@@ -467,6 +467,8 @@ bool playRequest(const String& url, const String& label, const String& type, con
 }
 
 void handleMqttCommand(const PlaybackCommand& command) {
+    bool publishImmediateState = true;
+
     if (command.action == "stop" || command.action == "pause") {
         lightPlayer->stop();
         settings->light.powerEnabled = false;
@@ -488,10 +490,12 @@ void handleMqttCommand(const PlaybackCommand& command) {
         settings->light.effectIndex = lightPlayer->findEffectIndex(command.mediaType.isEmpty() ? command.label : command.mediaType);
         String ignored;
         playRequest(settings->light.primaryColor, settings->light.secondaryColor, String(settings->light.effectIndex), command.source, ignored);
+        publishImmediateState = false;
     } else if (command.action == "color") {
         settings->light.primaryColor = command.url;
         String ignored;
         playRequest(settings->light.primaryColor, settings->light.secondaryColor, String(settings->light.effectIndex), command.source, ignored);
+        publishImmediateState = false;
     } else if (command.action == "pixels") {
         String ignored;
         applyPixelCommand(command.rawPayload, command.source.isEmpty() ? String("mqtt") : command.source, ignored);
@@ -506,6 +510,7 @@ void handleMqttCommand(const PlaybackCommand& command) {
     } else if (command.action == "play" && command.url.isEmpty()) {
         String ignored;
         playRequest(settings->light.primaryColor, settings->light.secondaryColor, String(settings->light.effectIndex), command.source, ignored);
+        publishImmediateState = false;
     } else if (command.action == "playpause") {
         const AppStateSnapshot snapshot = appState->snapshot();
         if (snapshot.playback.state == "playing" || snapshot.playback.state == "buffering") {
@@ -514,14 +519,18 @@ void handleMqttCommand(const PlaybackCommand& command) {
         } else if (!snapshot.playback.url.isEmpty()) {
             String ignored;
             playRequest(settings->light.primaryColor, settings->light.secondaryColor, String(settings->light.effectIndex), command.source, ignored);
+            publishImmediateState = false;
         }
     } else if (command.action == "next" || command.action == "previous") {
         // No queue-based transport controls in the light build.
     } else {
         String ignored;
         playRequest(command.url, command.label, command.mediaType.isEmpty() ? command.action : command.mediaType, command.source, ignored);
+        publishImmediateState = false;
     }
-    mqttManager->publishState();
+    if (publishImmediateState) {
+        mqttManager->publishState();
+    }
 }
 
 void processDeferredActions() {
