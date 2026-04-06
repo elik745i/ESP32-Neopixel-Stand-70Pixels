@@ -12,9 +12,17 @@ namespace {
 constexpr char AP_MODE_PRIMARY_COLOR[] = "#0000FF";
 constexpr unsigned long AP_MODE_PULSE_PERIOD_MS = 2000UL;
 constexpr uint8_t AP_MODE_BOOT_PULSE_COUNT = 5;
+constexpr char DEFAULT_WIFI_STATUS_EFFECT[] = "Scan";
 constexpr char OTA_PROGRESS_ACTIVE_COLOR[] = "#00D26A";
 constexpr char OTA_PROGRESS_INACTIVE_COLOR[] = "#081018";
 constexpr char MANUAL_PIXELS_TITLE[] = "Manual Pixels";
+constexpr unsigned long COLOR_TRANSITION_DURATION_MS = 1000UL;
+
+struct RgbColor {
+    uint8_t red = 0;
+    uint8_t green = 0;
+    uint8_t blue = 0;
+};
 
 String normalizeHexColor(const String& raw, const String& fallback = "#FFFFFF") {
     String color = raw;
@@ -35,6 +43,37 @@ String normalizeHexColor(const String& raw, const String& fallback = "#FFFFFF") 
 uint32_t parseColor(const String& color) {
     const String normalized = normalizeHexColor(color);
     return static_cast<uint32_t>(strtoul(normalized.substring(1).c_str(), nullptr, 16));
+}
+
+RgbColor unpackColor(const String& color) {
+    const uint32_t packed = parseColor(color);
+    return RgbColor{
+        static_cast<uint8_t>((packed >> 16) & 0xFF),
+        static_cast<uint8_t>((packed >> 8) & 0xFF),
+        static_cast<uint8_t>(packed & 0xFF),
+    };
+}
+
+String packColor(const RgbColor& color) {
+    char buffer[8];
+    snprintf(buffer, sizeof(buffer), "#%02X%02X%02X", color.red, color.green, color.blue);
+    return String(buffer);
+}
+
+uint8_t interpolateChannel(uint8_t start, uint8_t target, uint16_t progressScaled) {
+    const int delta = static_cast<int>(target) - static_cast<int>(start);
+    const int value = static_cast<int>(start) + ((delta * static_cast<int>(progressScaled)) / 1000);
+    return static_cast<uint8_t>(constrain(value, 0, 255));
+}
+
+String interpolateColor(const String& startColor, const String& targetColor, uint16_t progressScaled) {
+    const RgbColor start = unpackColor(startColor);
+    const RgbColor target = unpackColor(targetColor);
+    return packColor({
+        interpolateChannel(start.red, target.red, progressScaled),
+        interpolateChannel(start.green, target.green, progressScaled),
+        interpolateChannel(start.blue, target.blue, progressScaled),
+    });
 }
 
 uint16_t speedToWs2812fx(uint8_t speedPercent) {
@@ -116,6 +155,8 @@ class LightPlayer::Impl {
     uint8_t effectSpeed = 128;
     uint8_t effectIntensity = 128;
     float powerLimiterAmps = DefaultConfig::DEFAULT_POWER_LIMITER_AMPS;
+    uint16_t colorTransitionMs = 1000;
+    String apModeEffect = DEFAULT_WIFI_STATUS_EFFECT;
     bool powerEnabled = true;
     bool pixelOverrideActive = false;
     std::vector<uint32_t> pixelColors;
@@ -131,6 +172,12 @@ class LightPlayer::Impl {
     String primaryColor = "#FFFFFF";
     String secondaryColor = "#000000";
     String tertiaryColor = "#FF7B00";
+    String renderedPrimaryColor = "#FFFFFF";
+    String renderedSecondaryColor = "#000000";
+    String transitionStartPrimaryColor = "#FFFFFF";
+    String transitionStartSecondaryColor = "#000000";
+    bool colorTransitionActive = false;
+    unsigned long colorTransitionStartedAt = 0;
     String source = "manual";
 
     ~Impl() {
@@ -190,6 +237,30 @@ class LightPlayer::Impl {
         return name == nullptr ? String("Static") : String(name);
     }
 
+    uint16_t resolveEffectIndex(const String& name, uint16_t fallbackIndex = 0) const {
+        if (strip == nullptr) {
+            return fallbackIndex;
+        }
+
+        if (isNumeric(name)) {
+            const uint16_t index = static_cast<uint16_t>(name.toInt());
+            return index < strip->getModeCount() ? index : fallbackIndex;
+        }
+
+        String wanted = name;
+        wanted.trim();
+        wanted.toLowerCase();
+        for (uint16_t index = 0; index < strip->getModeCount(); ++index) {
+            String effect = effectNameForIndex(index);
+            effect.toLowerCase();
+            if (effect == wanted) {
+                return index;
+            }
+        }
+
+        return fallbackIndex;
+    }
+
     void initializeApIndicatorMode(bool usingSavedSettings) {
         apIndicatorMode = usingSavedSettings ? ApIndicatorMode::PulseThenRestore : ApIndicatorMode::ContinuousUntilSaved;
         apIndicatorStartedAt = 0;
@@ -245,18 +316,27 @@ class LightPlayer::Impl {
 
         if (apIndicatorStartedAt == 0) {
             apIndicatorStartedAt = now;
-            strip->setMode(FX_MODE_STATIC);
-            strip->setColor(parseColor(AP_MODE_PRIMARY_COLOR));
             strip->start();
         }
 
-        const unsigned long elapsed = now - apIndicatorStartedAt;
-        const unsigned long cyclePosition = elapsed % AP_MODE_PULSE_PERIOD_MS;
-        const float phase = static_cast<float>(cyclePosition) / static_cast<float>(AP_MODE_PULSE_PERIOD_MS);
-        const float envelope = phase < 0.5f ? (phase * 2.0f) : ((1.0f - phase) * 2.0f);
-        const uint8_t brightnessPercent = static_cast<uint8_t>(apIndicatorBrightness() * envelope + 0.5f);
+        uint8_t brightnessPercent = apIndicatorBrightness();
+        if (apIndicatorMode == ApIndicatorMode::PulseThenRestore) {
+            const unsigned long elapsed = now - apIndicatorStartedAt;
+            const unsigned long cyclePosition = elapsed % AP_MODE_PULSE_PERIOD_MS;
+            const float phase = static_cast<float>(cyclePosition) / static_cast<float>(AP_MODE_PULSE_PERIOD_MS);
+            const float envelope = phase < 0.5f ? (phase * 2.0f) : ((1.0f - phase) * 2.0f);
+            brightnessPercent = static_cast<uint8_t>(apIndicatorBrightness() * envelope + 0.5f);
+        }
 
+        uint32_t effectColors[] = {
+            parseColor(primaryColor),
+            parseColor(secondaryColor),
+            parseColor(tertiaryColor),
+        };
+        const uint16_t effectIndex = resolveEffectIndex(apModeEffect, resolveEffectIndex(DEFAULT_WIFI_STATUS_EFFECT, FX_MODE_SCAN));
+        strip->setSegment(0, 0, pixelCount - 1, effectIndex, effectColors, speedToWs2812fx(effectSpeed));
         strip->setBrightness(map(brightnessPercent, 0, 100, 0, 255));
+        strip->start();
         strip->trigger();
         strip->service();
     }
@@ -272,6 +352,21 @@ class LightPlayer::Impl {
         strip->setBrightness(powerEnabled ? map(effectiveBrightness(), 0, 100, 0, 255) : 0);
         for (uint16_t index = 0; index < pixelCount; ++index) {
             strip->setPixelColor(index, pixelColors[index]);
+        }
+        strip->show();
+    }
+
+    void renderPoweredOff() {
+        rebuildStripIfNeeded();
+        if (strip == nullptr) {
+            return;
+        }
+
+        strip->stop();
+        strip->setMode(FX_MODE_STATIC);
+        strip->setBrightness(0);
+        for (uint16_t index = 0; index < pixelCount; ++index) {
+            strip->setPixelColor(index, 0);
         }
         strip->show();
     }
@@ -303,8 +398,8 @@ class LightPlayer::Impl {
         }
 
         uint32_t effectColors[] = {
-            parseColor(primaryColor),
-            parseColor(secondaryColor),
+            parseColor(renderedPrimaryColor),
+            parseColor(renderedSecondaryColor),
             parseColor(tertiaryColor),
         };
         strip->setSegment(0, 0, pixelCount - 1, effectIndex, effectColors, speedToWs2812fx(effectSpeed));
@@ -312,6 +407,58 @@ class LightPlayer::Impl {
         strip->start();
         strip->trigger();
         strip->service();
+    }
+
+    void snapRenderedColorsToTarget() {
+        renderedPrimaryColor = primaryColor;
+        renderedSecondaryColor = secondaryColor;
+        transitionStartPrimaryColor = renderedPrimaryColor;
+        transitionStartSecondaryColor = renderedSecondaryColor;
+        colorTransitionActive = false;
+        colorTransitionStartedAt = 0;
+    }
+
+    void beginColorTransition(bool fadeFromBlack) {
+        if (!powerEnabled || pixelOverrideActive || otaProgressActive || apIndicatorActive || colorTransitionMs == 0) {
+            snapRenderedColorsToTarget();
+            return;
+        }
+
+        if (fadeFromBlack) {
+            renderedPrimaryColor = "#000000";
+            renderedSecondaryColor = "#000000";
+        }
+
+        if (renderedPrimaryColor == primaryColor && renderedSecondaryColor == secondaryColor) {
+            colorTransitionActive = false;
+            colorTransitionStartedAt = 0;
+            return;
+        }
+
+        transitionStartPrimaryColor = renderedPrimaryColor;
+        transitionStartSecondaryColor = renderedSecondaryColor;
+        colorTransitionActive = true;
+        colorTransitionStartedAt = millis();
+    }
+
+    bool advanceColorTransition(unsigned long now) {
+        if (!colorTransitionActive) {
+            return false;
+        }
+
+        const unsigned long elapsed = now - colorTransitionStartedAt;
+        if (elapsed >= colorTransitionMs) {
+            snapRenderedColorsToTarget();
+            return true;
+        }
+
+        const uint16_t progressScaled = static_cast<uint16_t>((elapsed * 1000UL) / colorTransitionMs);
+        const String nextPrimary = interpolateColor(transitionStartPrimaryColor, primaryColor, progressScaled);
+        const String nextSecondary = interpolateColor(transitionStartSecondaryColor, secondaryColor, progressScaled);
+        const bool changed = nextPrimary != renderedPrimaryColor || nextSecondary != renderedSecondaryColor;
+        renderedPrimaryColor = nextPrimary;
+        renderedSecondaryColor = nextSecondary;
+        return changed;
     }
 
     void renderCurrentOutput() {
@@ -323,6 +470,10 @@ class LightPlayer::Impl {
             applyApIndicatorFrame(millis());
             return;
         }
+        if (!powerEnabled) {
+            renderPoweredOff();
+            return;
+        }
         if (pixelOverrideActive) {
             renderPixelOverride();
             return;
@@ -330,7 +481,7 @@ class LightPlayer::Impl {
         renderEffectMode();
     }
 
-    void applyToStrip() {
+    void applyToStrip(bool fadeFromBlack = false) {
         if (pixelOverrideActive) {
             type = MANUAL_PIXELS_TITLE;
             title = powerEnabled ? String(MANUAL_PIXELS_TITLE) : String("Off");
@@ -340,6 +491,7 @@ class LightPlayer::Impl {
             title = powerEnabled ? type : String("Off");
             state = powerEnabled ? "playing" : "idle";
         }
+        beginColorTransition(fadeFromBlack);
         renderCurrentOutput();
     }
 
@@ -376,7 +528,7 @@ class LightPlayer::Impl {
 
     void publish() {
         if (appState != nullptr) {
-            appState->setPlayback(state, type, title, currentUrlSummary(), primaryColor, source, volume, powerEnabled);
+            appState->setPlayback(state, type, title, currentUrlSummary(), primaryColor, source, volume, colorTransitionMs, powerEnabled);
         }
     }
 };
@@ -413,7 +565,9 @@ void LightPlayer::loop() {
         impl_->applyApIndicatorFrame(millis());
     } else if (impl_->otaProgressActive || impl_->pixelOverrideActive) {
         impl_->renderCurrentOutput();
-    } else if (impl_->strip != nullptr) {
+    } else if (impl_->strip != nullptr && impl_->powerEnabled && impl_->advanceColorTransition(millis())) {
+        impl_->renderEffectMode();
+    } else if (impl_->strip != nullptr && impl_->powerEnabled) {
         impl_->strip->service();
     }
 }
@@ -427,6 +581,7 @@ bool LightPlayer::play(const String& primaryColor, const String& secondaryColor,
         impl_->dismissApIndicator();
     }
 
+    const bool wasPowerEnabled = impl_->powerEnabled;
     impl_->deactivatePixelOverride();
 
     if (!primaryColor.isEmpty()) {
@@ -441,7 +596,7 @@ bool LightPlayer::play(const String& primaryColor, const String& secondaryColor,
 
     impl_->source = source.isEmpty() ? String("manual") : source;
     impl_->powerEnabled = true;
-    impl_->applyToStrip();
+    impl_->applyToStrip(!wasPowerEnabled);
     impl_->publish();
     return true;
 }
@@ -487,11 +642,14 @@ void LightPlayer::applyLightSettings(const LightSettings& settings) {
         impl_->dismissApIndicator();
     }
 
+    const bool wasPowerEnabled = impl_->powerEnabled;
     impl_->deactivatePixelOverride();
 
     impl_->pixelCount = settings.pixelCount;
     impl_->dataPin = settings.dataPin;
     impl_->powerLimiterAmps = settings.powerLimiterAmps;
+    impl_->colorTransitionMs = settings.colorTransitionMs;
+    impl_->apModeEffect = settings.apModeEffect;
     impl_->effectIndex = settings.effectIndex;
     impl_->effectSpeed = settings.effectSpeed;
     impl_->effectIntensity = settings.effectIntensity;
@@ -499,7 +657,7 @@ void LightPlayer::applyLightSettings(const LightSettings& settings) {
     impl_->secondaryColor = normalizeHexColor(settings.secondaryColor, impl_->secondaryColor);
     impl_->tertiaryColor = normalizeHexColor(settings.tertiaryColor, impl_->tertiaryColor);
     impl_->powerEnabled = settings.powerEnabled;
-    impl_->applyToStrip();
+    impl_->applyToStrip(!wasPowerEnabled && impl_->powerEnabled);
     impl_->publish();
 }
 
@@ -512,8 +670,9 @@ void LightPlayer::setPowerEnabled(bool enabled) {
         impl_->dismissApIndicator();
     }
 
+    const bool wasPowerEnabled = impl_->powerEnabled;
     impl_->powerEnabled = enabled;
-    impl_->applyToStrip();
+    impl_->applyToStrip(!wasPowerEnabled && impl_->powerEnabled);
     impl_->publish();
 }
 

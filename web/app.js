@@ -83,6 +83,8 @@ const elements = {
   playUrl: document.getElementById("playUrl"),
   playLabel: document.getElementById("playLabel"),
   playType: document.getElementById("playType"),
+  apModeEffect: document.getElementById("apModeEffect"),
+  staModeEffect: document.getElementById("staModeEffect"),
   lightEffectPreview: document.getElementById("lightEffectPreview"),
   radioCountrySelect: document.getElementById("radioCountrySelect"),
   radioStationSelect: document.getElementById("radioStationSelect"),
@@ -159,6 +161,36 @@ function syncSelectedEffectFromState() {
   }
 }
 
+function populateEffectSelect(select, effectList, selected) {
+  if (!select) {
+    return;
+  }
+
+  select.innerHTML = "";
+  for (const effect of effectList) {
+    const option = document.createElement("option");
+    option.value = effect;
+    option.textContent = effect;
+    select.appendChild(option);
+  }
+
+  if (effectList.includes(selected)) {
+    select.value = selected;
+  }
+}
+
+function syncWifiEffectSelections() {
+  const apValue = String(state.settings?.light?.apModeEffect || "Scan").trim() || "Scan";
+  const staValue = String(state.settings?.light?.staModeEffect || "Scan").trim() || "Scan";
+
+  if (elements.apModeEffect && [...elements.apModeEffect.options].some((option) => option.value === apValue)) {
+    elements.apModeEffect.value = apValue;
+  }
+  if (elements.staModeEffect && [...elements.staModeEffect.options].some((option) => option.value === staValue)) {
+    elements.staModeEffect.value = staValue;
+  }
+}
+
 function populateLightEffects(effects) {
   state.lightEffects = Array.isArray(effects)
     ? effects.map((effect) => String(effect || "").trim()).filter(Boolean)
@@ -168,22 +200,16 @@ function populateLightEffects(effects) {
     return;
   }
 
-  const selected = currentSelectedEffectName();
-  elements.playType.innerHTML = "";
-
   const effectList = state.lightEffects.length ? state.lightEffects : ["Static"];
-  for (const effect of effectList) {
-    const option = document.createElement("option");
-    option.value = effect;
-    option.textContent = effect;
-    elements.playType.appendChild(option);
-  }
+  const selected = currentSelectedEffectName();
+  populateEffectSelect(elements.playType, effectList, selected);
+  populateEffectSelect(elements.apModeEffect, effectList, String(state.settings?.light?.apModeEffect || "Scan").trim() || "Scan");
+  populateEffectSelect(elements.staModeEffect, effectList, String(state.settings?.light?.staModeEffect || "Scan").trim() || "Scan");
 
-  if (effectList.includes(selected)) {
-    elements.playType.value = selected;
-  } else {
+  if (!effectList.includes(selected)) {
     syncSelectedEffectFromState();
   }
+  syncWifiEffectSelections();
 
   renderLightEffectPreview();
 }
@@ -1144,6 +1170,7 @@ function fillForm(data) {
   if (!state.playSelectionDirty && elements.playType && state.status?.playback?.title) {
     elements.playType.value = state.status.playback.title;
   }
+  syncWifiEffectSelections();
   updateDerivedBatteryCalibration();
   updateAudioUiState();
   updateLowBatterySleepUi();
@@ -1227,6 +1254,7 @@ function collectForm() {
   payload.light.dataPin = Number(payload.light.dataPin || 16);
   payload.light.pixelCount = Number(payload.light.pixelCount || 70);
   payload.light.powerLimiterAmps = Number(payload.light.powerLimiterAmps || 2.0);
+  payload.light.colorTransitionMs = Number(payload.light.colorTransitionMs || 1000);
   payload.light.effectIndex = currentSelectedEffectIndex();
   payload.light.effectSpeed = Number(payload.light.effectSpeed || 128);
   payload.light.effectIntensity = Number(payload.light.effectIntensity || 128);
@@ -1436,6 +1464,7 @@ function renderStatus(status) {
   const mqttConnected = Boolean(status.network.mqttConnected);
   const mqttDetail = String(status.network.mqttDetail || "").trim();
   const playbackActive = status.playback.state === "playing";
+  const playbackPowerEnabled = Boolean(status.playback.powerEnabled ?? playbackActive);
   const savedVolumePercent = Number(state.settings?.device?.savedVolumePercent ?? status.playback.volumePercent ?? 0);
 
   elements.deviceTitle.textContent = status.device.friendlyName || "ESP32 NeoPixel Stand";
@@ -1464,14 +1493,14 @@ function renderStatus(status) {
     elements.volumeSlider.value = savedVolumePercent;
   }
   elements.volumeValue.textContent = `${document.activeElement === elements.volumeSlider ? elements.volumeSlider.value : savedVolumePercent}%`;
-  const powerEnabled = Boolean(state.settings?.light?.powerEnabled ?? elements.audioMutedToggle?.checked ?? playbackActive);
+  const powerEnabled = Boolean(playbackPowerEnabled ?? state.settings?.light?.powerEnabled ?? elements.audioMutedToggle?.checked);
 
   updatePlaybackActionButton();
   updateAudioUiState();
 
   renderWifiHero(wifiConnected, status.network.ip || (status.network.apMode ? "192.168.4.1" : "No IP"), status.network.wifiRssi);
   setPill(elements.mqttPill, mqttConnected ? "MQTT Connected" : "MQTT Offline", mqttConnected ? "ok" : "warn");
-  setPill(elements.audioPill, powerEnabled ? (status.playback.title || "On") : "Off", playbackActive ? "ok" : "warn");
+  setPill(elements.audioPill, powerEnabled ? (status.playback.title || "On") : "Off", powerEnabled ? "ok" : "warn");
   renderBatteryHero(status.battery.voltage || 0);
 
   elements.otaStatusLabel.textContent = ota.message || ota.lastResult || "Idle";
@@ -1571,10 +1600,22 @@ function updatePlaybackActionButton() {
 
   const playbackState = String(state.status?.playback?.state || "idle");
   const playbackActive = playbackState === "playing" || playbackState === "buffering";
+  const powerEnabled = Boolean(state.status?.playback?.powerEnabled ?? state.settings?.light?.powerEnabled ?? elements.audioMutedToggle?.checked ?? playbackActive);
 
-  const applyMode = state.playSelectionDirty || !playbackActive;
-  elements.playbackActionButton.textContent = applyMode ? "Apply" : "Turn Off";
-  elements.playbackActionButton.classList.toggle("secondary", !applyMode);
+  let label = "Turn On";
+  let secondary = false;
+  let danger = false;
+
+  if (powerEnabled && state.playSelectionDirty) {
+    label = "Apply";
+  } else if (powerEnabled) {
+    label = "Turn Off";
+    danger = true;
+  }
+
+  elements.playbackActionButton.textContent = label;
+  elements.playbackActionButton.classList.toggle("secondary", secondary);
+  elements.playbackActionButton.classList.toggle("danger", danger);
   elements.playbackActionButton.disabled = false;
   elements.playbackActionButton.title = "";
 }
@@ -2023,8 +2064,9 @@ async function handlePlaybackAction(event) {
 
   const playbackState = String(state.status?.playback?.state || "idle");
   const playbackActive = playbackState === "playing" || playbackState === "buffering";
+  const powerEnabled = Boolean(state.status?.playback?.powerEnabled ?? state.settings?.light?.powerEnabled ?? elements.audioMutedToggle?.checked ?? playbackActive);
 
-  if (playbackActive && !state.playSelectionDirty) {
+  if (powerEnabled && !state.playSelectionDirty) {
     await stopPlayback();
     return;
   }

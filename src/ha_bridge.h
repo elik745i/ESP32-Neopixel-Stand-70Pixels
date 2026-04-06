@@ -16,6 +16,7 @@ struct PlaybackCommand {
     String rawPayload;
     int32_t pixelIndex = -1;
     uint8_t volumePercent = 0;
+    uint16_t transitionMs = 1000;
     bool powerEnabled = true;
 };
 
@@ -27,6 +28,7 @@ String availabilityTopic(const SettingsBundle& settings);
 String playbackStateTopic(const SettingsBundle& settings);
 String lightPowerStateTopic(const SettingsBundle& settings);
 String lightEffectStateTopic(const SettingsBundle& settings);
+String lightTransitionStateTopic(const SettingsBundle& settings);
 String colorStateTopic(const SettingsBundle& settings);
 String networkStateTopic(const SettingsBundle& settings);
 String batteryStateTopic(const SettingsBundle& settings);

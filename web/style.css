@@ -74,7 +74,11 @@
   }
 
   .stat {
+    display: grid;
+    grid-template-rows: auto 1fr;
+    align-items: stretch;
     padding: 12px;
+    min-height: 188px;
     border-radius: 10px;
     background: var(--panel-soft);
     border: 1px solid var(--line);
@@ -89,7 +93,11 @@
   }
 
   .stat-value {
-    margin-top: 6px;
+    display: grid;
+    align-content: center;
+    justify-items: center;
+    margin-top: 0;
+    min-height: 100%;
     font-size: clamp(1.1rem, 3vw, 1.8rem);
     font-weight: 700;
     color: #2d2d2d;
@@ -121,14 +129,16 @@
 
   .stat-value-wifi,
   .stat-value-battery {
-    margin-top: 8px;
+    margin-top: 0;
   }
 
   .wifi-hero-widget,
   .battery-hero-widget {
     display: grid;
     justify-items: center;
+    align-content: center;
     gap: 4px;
+    min-height: 100%;
   }
 
   .wifi-icon {

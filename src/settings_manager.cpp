@@ -5,6 +5,7 @@
 namespace {
 constexpr char PREF_NAMESPACE[] = "notifier";
 constexpr char PREF_MARKER[] = "saved";
+constexpr char DEFAULT_WIFI_STATUS_EFFECT[] = "Scan";
 
 bool isValidLightDataPin(uint8_t pin) {
     switch (pin) {
@@ -112,6 +113,9 @@ SettingsBundle SettingsManager::defaults() const {
     settings.light.dataPin = DefaultConfig::DEFAULT_NEOPIXEL_DATA_PIN;
     settings.light.pixelCount = DefaultConfig::DEFAULT_PIXEL_COUNT;
     settings.light.powerLimiterAmps = DefaultConfig::DEFAULT_POWER_LIMITER_AMPS;
+    settings.light.colorTransitionMs = 1000;
+    settings.light.apModeEffect = DEFAULT_WIFI_STATUS_EFFECT;
+    settings.light.staModeEffect = DEFAULT_WIFI_STATUS_EFFECT;
     settings.light.effectIndex = 0;
     settings.light.effectSpeed = 128;
     settings.light.effectIntensity = 128;
@@ -146,6 +150,8 @@ SettingsBundle SettingsManager::sanitize(const SettingsBundle& input) const {
     settings.ota.assetTemplate.trim();
     settings.ota.manifestUrl.trim();
     settings.webAuth.username.trim();
+    settings.light.apModeEffect.trim();
+    settings.light.staModeEffect.trim();
     settings.light.primaryColor.trim();
     settings.light.secondaryColor.trim();
     settings.light.tertiaryColor.trim();
@@ -192,6 +198,13 @@ SettingsBundle SettingsManager::sanitize(const SettingsBundle& input) const {
     }
     settings.light.pixelCount = clampValue<uint16_t>(settings.light.pixelCount, static_cast<uint16_t>(1), DefaultConfig::MAX_PIXEL_COUNT);
     settings.light.powerLimiterAmps = clampValue<float>(settings.light.powerLimiterAmps, 0.1f, 20.0f);
+    settings.light.colorTransitionMs = clampValue<uint16_t>(settings.light.colorTransitionMs, static_cast<uint16_t>(0), static_cast<uint16_t>(5000));
+    if (settings.light.apModeEffect.isEmpty()) {
+        settings.light.apModeEffect = DEFAULT_WIFI_STATUS_EFFECT;
+    }
+    if (settings.light.staModeEffect.isEmpty()) {
+        settings.light.staModeEffect = DEFAULT_WIFI_STATUS_EFFECT;
+    }
     settings.light.effectSpeed = clampValue<uint8_t>(settings.light.effectSpeed, static_cast<uint8_t>(1), static_cast<uint8_t>(255));
     settings.light.effectIntensity = clampValue<uint8_t>(settings.light.effectIntensity, static_cast<uint8_t>(1), static_cast<uint8_t>(255));
     settings.usingSavedSettings = input.usingSavedSettings;
@@ -257,6 +270,9 @@ SettingsBundle SettingsManager::load() {
     settings.light.dataPin = readUInt("light_pin", settings.light.dataPin);
     settings.light.pixelCount = readUInt("light_cnt", settings.light.pixelCount);
     settings.light.powerLimiterAmps = readFloat("light_amp", settings.light.powerLimiterAmps);
+    settings.light.colorTransitionMs = readUInt("light_tr_ms", settings.light.colorTransitionMs);
+    settings.light.apModeEffect = readString("light_apfx", settings.light.apModeEffect);
+    settings.light.staModeEffect = readString("light_stafx", settings.light.staModeEffect);
     settings.light.effectIndex = readUInt("light_fx", settings.light.effectIndex);
     settings.light.effectSpeed = readUInt("light_spd", settings.light.effectSpeed);
     settings.light.effectIntensity = readUInt("light_int", settings.light.effectIntensity);
@@ -332,6 +348,9 @@ bool SettingsManager::save(const SettingsBundle& settings) {
     changed |= writeUIntIfChanged("light_pin", sanitized.light.dataPin);
     changed |= writeUIntIfChanged("light_cnt", sanitized.light.pixelCount);
     changed |= writeFloatIfChanged("light_amp", sanitized.light.powerLimiterAmps);
+    changed |= writeUIntIfChanged("light_tr_ms", sanitized.light.colorTransitionMs);
+    changed |= writeStringIfChanged("light_apfx", sanitized.light.apModeEffect);
+    changed |= writeStringIfChanged("light_stafx", sanitized.light.staModeEffect);
     changed |= writeUIntIfChanged("light_fx", sanitized.light.effectIndex);
     changed |= writeUIntIfChanged("light_spd", sanitized.light.effectSpeed);
     changed |= writeUIntIfChanged("light_int", sanitized.light.effectIntensity);
@@ -413,6 +432,9 @@ void SettingsManager::toJson(const SettingsBundle& settings, JsonObject root) co
     light["dataPin"] = settings.light.dataPin;
     light["pixelCount"] = settings.light.pixelCount;
     light["powerLimiterAmps"] = settings.light.powerLimiterAmps;
+    light["colorTransitionMs"] = settings.light.colorTransitionMs;
+    light["apModeEffect"] = settings.light.apModeEffect;
+    light["staModeEffect"] = settings.light.staModeEffect;
     light["effectIndex"] = settings.light.effectIndex;
     light["effectSpeed"] = settings.light.effectSpeed;
     light["effectIntensity"] = settings.light.effectIntensity;
@@ -512,6 +534,8 @@ bool SettingsManager::updateFromJson(SettingsBundle& settings, JsonVariantConst 
 
     JsonObjectConst light = object["light"];
     if (!light.isNull()) {
+        copyString(light, "apModeEffect", settings.light.apModeEffect);
+        copyString(light, "staModeEffect", settings.light.staModeEffect);
         copyString(light, "primaryColor", settings.light.primaryColor);
         copyString(light, "secondaryColor", settings.light.secondaryColor);
         copyString(light, "tertiaryColor", settings.light.tertiaryColor);
@@ -519,6 +543,7 @@ bool SettingsManager::updateFromJson(SettingsBundle& settings, JsonVariantConst 
         if (light["dataPin"].is<uint8_t>()) settings.light.dataPin = light["dataPin"].as<uint8_t>();
         if (light["pixelCount"].is<uint16_t>()) settings.light.pixelCount = light["pixelCount"].as<uint16_t>();
         if (light["powerLimiterAmps"].is<float>()) settings.light.powerLimiterAmps = light["powerLimiterAmps"].as<float>();
+        if (light["colorTransitionMs"].is<uint16_t>()) settings.light.colorTransitionMs = light["colorTransitionMs"].as<uint16_t>();
         if (light["effectIndex"].is<uint16_t>()) settings.light.effectIndex = light["effectIndex"].as<uint16_t>();
         if (light["effectSpeed"].is<uint8_t>()) settings.light.effectSpeed = light["effectSpeed"].as<uint8_t>();
         if (light["effectIntensity"].is<uint8_t>()) settings.light.effectIntensity = light["effectIntensity"].as<uint8_t>();

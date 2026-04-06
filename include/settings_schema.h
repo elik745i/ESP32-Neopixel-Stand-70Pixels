@@ -68,6 +68,9 @@ struct LightSettings {
     uint8_t dataPin = 16;
     uint16_t pixelCount = 30;
     float powerLimiterAmps = 2.0f;
+    uint16_t colorTransitionMs = 1000;
+    String apModeEffect = "Scan";
+    String staModeEffect = "Scan";
     uint16_t effectIndex = 0;
     uint8_t effectSpeed = 128;
     uint8_t effectIntensity = 128;

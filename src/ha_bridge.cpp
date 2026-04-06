@@ -62,6 +62,10 @@ String lightEffectStateTopic(const SettingsBundle& settings) {
     return settings.mqtt.baseTopic + "/state/light_effect";
 }
 
+String lightTransitionStateTopic(const SettingsBundle& settings) {
+    return settings.mqtt.baseTopic + "/state/transition_ms";
+}
+
 String colorStateTopic(const SettingsBundle& settings) {
     return settings.mqtt.baseTopic + "/state/color_rgb";
 }
@@ -157,7 +161,7 @@ String discoveryPayloadLight(const SettingsBundle& settings, const char* objectI
     doc["rgb_state_topic"] = colorStateTopic(settings);
     doc["effect_command_topic"] = commandTopic(settings, "effect");
     doc["effect_state_topic"] = lightEffectStateTopic(settings);
-    doc["optimistic"] = false;
+    doc["optimistic"] = true;
 
     JsonArray effectList = doc["effect_list"].to<JsonArray>();
     if (lightEffectsGetter) {

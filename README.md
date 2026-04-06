@@ -258,7 +258,7 @@ Typical release flow for this repository:
 
 Current firmware version in this working tree:
 
-- `v0.1.6`
+- `v0.1.7`
 
 Recent changes included in this version:
 
@@ -268,6 +268,9 @@ Recent changes included in this version:
 - add an inline pixel animation preview in the Light tab for live effect visualization
 - expose the strip to Home Assistant as a proper MQTT light with brightness, RGB color, and runtime effect selection
 - publish effect and color helper entity state so Home Assistant no longer shows those values as `unknown`
+- add smooth configurable light color transitions with optimistic MQTT state updates for Home Assistant
+- expose light transition time in the web Light tab and over MQTT for Home Assistant automation
+- add persisted AP mode and STA-connect Wi-Fi effect selectors on the Light tab and wire them into the existing status-effect behavior
 
 Current default hardware profile in this working tree:
 

@@ -102,6 +102,14 @@
               </label>
             </div>
             <div class="row">
+              <label>AP Mode Effect
+                <select id="apModeEffect" name="light.apModeEffect" form="settingsForm"></select>
+              </label>
+              <label>STA Connect Effect
+                <select id="staModeEffect" name="light.staModeEffect" form="settingsForm"></select>
+              </label>
+            </div>
+            <div class="row">
               <label>GPIO
                 <select name="light.dataPin" form="settingsForm">
                   <option value="1">GPIO1</option>
@@ -144,6 +152,9 @@
               </label>
               <label>Pixels
                 <input name="light.pixelCount" form="settingsForm" type="number" min="1" max="600" step="1" value="70">
+              </label>
+              <label>Color Transition (ms)
+                <input name="light.colorTransitionMs" form="settingsForm" type="number" min="0" max="5000" step="50" value="1000">
               </label>
             </div>
             <div class="inline-actions">

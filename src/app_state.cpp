@@ -68,14 +68,14 @@ void AppState::setMqttDetail(const String& detail) {
     xSemaphoreGive(mutex_);
 }
 
-void AppState::setPlayback(const String& state, const String& type, const String& title, const String& url, const String& primaryColor, const String& source, uint8_t volumePercent, bool powerEnabled) {
+void AppState::setPlayback(const String& state, const String& type, const String& title, const String& url, const String& primaryColor, const String& source, uint8_t volumePercent, uint16_t transitionMs, bool powerEnabled) {
     if (!ensureMutex()) {
         return;
     }
     xSemaphoreTake(mutex_, portMAX_DELAY);
     if (state_.playback.state == state && state_.playback.type == type && state_.playback.title == title &&
         state_.playback.url == url && state_.playback.primaryColor == primaryColor && state_.playback.source == source &&
-        state_.playback.volumePercent == volumePercent && state_.playback.powerEnabled == powerEnabled) {
+        state_.playback.volumePercent == volumePercent && state_.playback.transitionMs == transitionMs && state_.playback.powerEnabled == powerEnabled) {
         xSemaphoreGive(mutex_);
         return;
     }
@@ -86,6 +86,7 @@ void AppState::setPlayback(const String& state, const String& type, const String
     state_.playback.primaryColor = primaryColor;
     state_.playback.source = source;
     state_.playback.volumePercent = volumePercent;
+    state_.playback.transitionMs = transitionMs;
     state_.playback.powerEnabled = powerEnabled;
     xSemaphoreGive(mutex_);
 }
@@ -177,6 +178,7 @@ void AppState::toJson(JsonObject root) const {
     playback["primaryColor"] = copy.playback.primaryColor;
     playback["source"] = copy.playback.source;
     playback["volumePercent"] = copy.playback.volumePercent;
+    playback["transitionMs"] = copy.playback.transitionMs;
     playback["powerEnabled"] = copy.playback.powerEnabled;
 
     JsonObject battery = root["battery"].to<JsonObject>();

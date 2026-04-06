@@ -124,7 +124,7 @@ class LightPlayerStub {
     private:
     void publish() {
         if (appState_ != nullptr) {
-            appState_->setPlayback(state_, type_, title_, url_, "#FFFFFF", source_, volume_, false);
+            appState_->setPlayback(state_, type_, title_, url_, "#FFFFFF", source_, volume_, 1000, false);
         }
     }
 
@@ -144,6 +144,7 @@ using LightPlayerType = LightPlayer;
 #endif
 
 namespace {
+constexpr char DEFAULT_WIFI_STATUS_EFFECT[] = "Scan";
 AppState* appState = nullptr;
 SettingsManager* settingsManager = nullptr;
 SettingsBundle* settings = nullptr;
@@ -161,10 +162,20 @@ struct DeferredActions {
     SettingsBundle pendingSettings;
     bool playPending = false;
     bool stopPending = false;
+    bool mqttLightApplyPending = false;
+    bool lightSavePending = false;
+    bool mqttStatePublishPending = false;
     bool volumePending = false;
     bool volumeSavePending = false;
     uint8_t pendingVolume = 0;
+    unsigned long mqttLightApplyAt = 0;
+    unsigned long lightSaveAt = 0;
+    unsigned long mqttStatePublishAt = 0;
     unsigned long volumeSaveAt = 0;
+    String mqttPrimaryColor;
+    String mqttSecondaryColor;
+    String mqttEffectName;
+    String mqttSource;
     String playUrl;
     String playLabel;
     String playType;
@@ -191,6 +202,8 @@ unsigned long wifiConnectedPreviewEndsAt = 0;
 constexpr float kBatteryPercentEmptyVoltage = 3.2f;
 constexpr float kBatteryPercentFullVoltage = 4.2f;
 constexpr unsigned long kLowBatteryWakeWindowMs = 30000UL;
+constexpr unsigned long kMqttLightApplyDebounceMs = 90UL;
+constexpr unsigned long kMqttStateDebounceMs = 120UL;
 constexpr unsigned long kVolumePersistDelayMs = 750UL;
 constexpr unsigned long kWifiConnectedPreviewMs = 6000UL;
 
@@ -355,7 +368,8 @@ void applyOnboardingConnectedEffect() {
     }
 
     settings->device.savedVolumePercent = DefaultConfig::DEFAULT_VOLUME_PERCENT;
-    settings->light.effectIndex = lightPlayer->findEffectIndex("Rainbow");
+    const String onboardingEffect = settings->light.staModeEffect.isEmpty() ? String(DEFAULT_WIFI_STATUS_EFFECT) : settings->light.staModeEffect;
+    settings->light.effectIndex = lightPlayer->findEffectIndex(onboardingEffect);
     settings->light.powerEnabled = true;
     lightPlayer->setVolumePercent(DefaultConfig::DEFAULT_VOLUME_PERCENT);
     lightPlayer->play(settings->light.primaryColor, settings->light.secondaryColor, String(settings->light.effectIndex), "system");
@@ -367,8 +381,9 @@ void startSavedLightWifiConnectedPreview() {
         return;
     }
 
+    const String staPreviewEffect = settings->light.staModeEffect.isEmpty() ? String(DEFAULT_WIFI_STATUS_EFFECT) : settings->light.staModeEffect;
     lightPlayer->setVolumePercent(settings->device.savedVolumePercent);
-    lightPlayer->play(settings->light.primaryColor, settings->light.secondaryColor, "Rainbow", "system");
+    lightPlayer->play(settings->light.primaryColor, settings->light.secondaryColor, staPreviewEffect, "system");
     wifiConnectedPreviewActive = true;
     wifiConnectedPreviewEndsAt = millis() + kWifiConnectedPreviewMs;
 }
@@ -473,6 +488,48 @@ void cancelPendingPlaybackActivation() {
 
     deferredActions->playPending = false;
     deferredActions->stopPending = false;
+    deferredActions->mqttLightApplyPending = false;
+}
+
+void scheduleLightStateSave() {
+    if (deferredActions == nullptr) {
+        return;
+    }
+
+    deferredActions->lightSavePending = true;
+    deferredActions->lightSaveAt = millis() + kVolumePersistDelayMs;
+}
+
+void scheduleMqttStatePublish(unsigned long delayMs = kMqttStateDebounceMs) {
+    if (deferredActions == nullptr) {
+        return;
+    }
+
+    deferredActions->mqttStatePublishPending = true;
+    deferredActions->mqttStatePublishAt = millis() + delayMs;
+}
+
+void scheduleMqttLightApply(const String& primaryColor, const String& secondaryColor, const String& effectName, const String& source, unsigned long delayMs = kMqttLightApplyDebounceMs) {
+    if (deferredActions == nullptr) {
+        return;
+    }
+
+    deferredActions->mqttPrimaryColor = primaryColor;
+    deferredActions->mqttSecondaryColor = secondaryColor;
+    deferredActions->mqttEffectName = effectName;
+    deferredActions->mqttSource = source;
+    deferredActions->mqttLightApplyPending = true;
+    deferredActions->mqttLightApplyAt = millis() + delayMs;
+}
+
+void applyLightCommandImmediately(const String& primaryColor, const String& secondaryColor, const String& effectName, const String& source) {
+    cancelPendingPlaybackActivation();
+    lightPlayer->play(primaryColor, secondaryColor, effectName, source);
+    settings->light.primaryColor = primaryColor;
+    settings->light.secondaryColor = secondaryColor;
+    settings->light.effectIndex = lightPlayer->findEffectIndex(effectName);
+    settings->light.powerEnabled = true;
+    scheduleLightStateSave();
 }
 
 void handleMqttCommand(const PlaybackCommand& command) {
@@ -483,16 +540,17 @@ void handleMqttCommand(const PlaybackCommand& command) {
         lightPlayer->stop();
         settings->light.powerEnabled = false;
     } else if (command.action == "volume") {
+        const bool wasPowerEnabled = settings->light.powerEnabled;
         settings->device.savedVolumePercent = command.volumePercent;
         if (command.volumePercent == 0) {
             cancelPendingPlaybackActivation();
         }
         lightPlayer->setVolumePercent(command.volumePercent);
-        settings->light.powerEnabled = command.volumePercent > 0;
-        if (settings->light.powerEnabled) {
-            lightPlayer->setPowerEnabled(true);
-        } else {
+        settings->light.powerEnabled = command.volumePercent > 0 ? wasPowerEnabled : false;
+        if (command.volumePercent == 0) {
             lightPlayer->stop();
+        } else if (settings->light.powerEnabled) {
+            lightPlayer->setPowerEnabled(true);
         }
         soundEffects->setVolumePercent(command.volumePercent);
         deferredActions->pendingVolume = command.volumePercent;
@@ -512,13 +570,15 @@ void handleMqttCommand(const PlaybackCommand& command) {
         settingsManager->save(*settings);
     } else if (command.action == "effect") {
         settings->light.effectIndex = lightPlayer->findEffectIndex(command.mediaType.isEmpty() ? command.label : command.mediaType);
-        String ignored;
-        playRequest(settings->light.primaryColor, settings->light.secondaryColor, String(settings->light.effectIndex), command.source, ignored);
+        scheduleMqttLightApply(settings->light.primaryColor, settings->light.secondaryColor, String(settings->light.effectIndex), command.source);
         publishImmediateState = false;
+    } else if (command.action == "transition") {
+        settings->light.colorTransitionMs = command.transitionMs;
+        lightPlayer->applyLightSettings(settings->light);
+        settingsManager->save(*settings);
     } else if (command.action == "color") {
         settings->light.primaryColor = command.url;
-        String ignored;
-        playRequest(settings->light.primaryColor, settings->light.secondaryColor, String(settings->light.effectIndex), command.source, ignored);
+        scheduleMqttLightApply(settings->light.primaryColor, settings->light.secondaryColor, String(settings->light.effectIndex), command.source);
         publishImmediateState = false;
     } else if (command.action == "pixels") {
         String ignored;
@@ -532,8 +592,7 @@ void handleMqttCommand(const PlaybackCommand& command) {
             mqttManager->publishState();
         }
     } else if (command.action == "play" && command.url.isEmpty()) {
-        String ignored;
-        playRequest(settings->light.primaryColor, settings->light.secondaryColor, String(settings->light.effectIndex), command.source, ignored);
+        scheduleMqttLightApply(settings->light.primaryColor, settings->light.secondaryColor, String(settings->light.effectIndex), command.source);
         publishImmediateState = false;
     } else if (command.action == "playpause") {
         const AppStateSnapshot snapshot = appState->snapshot();
@@ -542,8 +601,7 @@ void handleMqttCommand(const PlaybackCommand& command) {
             lightPlayer->stop();
             settings->light.powerEnabled = false;
         } else if (!snapshot.playback.url.isEmpty()) {
-            String ignored;
-            playRequest(settings->light.primaryColor, settings->light.secondaryColor, String(settings->light.effectIndex), command.source, ignored);
+            scheduleMqttLightApply(settings->light.primaryColor, settings->light.secondaryColor, String(settings->light.effectIndex), command.source);
             publishImmediateState = false;
         }
     } else if (command.action == "next" || command.action == "previous") {
@@ -594,6 +652,26 @@ void processDeferredActions() {
     if (deferredActions->volumeSavePending && static_cast<long>(millis() - deferredActions->volumeSaveAt) >= 0) {
         settingsManager->save(*settings);
         deferredActions->volumeSavePending = false;
+    }
+
+    if (deferredActions->lightSavePending && static_cast<long>(millis() - deferredActions->lightSaveAt) >= 0) {
+        settingsManager->save(*settings);
+        deferredActions->lightSavePending = false;
+    }
+
+    if (deferredActions->mqttLightApplyPending && static_cast<long>(millis() - deferredActions->mqttLightApplyAt) >= 0) {
+        deferredActions->mqttLightApplyPending = false;
+        applyLightCommandImmediately(
+            deferredActions->mqttPrimaryColor,
+            deferredActions->mqttSecondaryColor,
+            deferredActions->mqttEffectName,
+            deferredActions->mqttSource);
+        scheduleMqttStatePublish(0);
+    }
+
+    if (deferredActions->mqttStatePublishPending && static_cast<long>(millis() - deferredActions->mqttStatePublishAt) >= 0) {
+        deferredActions->mqttStatePublishPending = false;
+        mqttManager->publishState();
     }
 
     if (deferredActions->playPending) {

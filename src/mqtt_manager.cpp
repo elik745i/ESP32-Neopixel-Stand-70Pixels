@@ -118,6 +118,36 @@ uint8_t parseBrightnessPercent(const String& payload) {
     return static_cast<uint8_t>(constrain(value.toInt(), 0, 100));
 }
 
+uint16_t parseTransitionMs(const String& payload, uint16_t fallback = 1000) {
+    String value = payload;
+    value.trim();
+    if (value.isEmpty()) {
+        return fallback;
+    }
+
+    if (!value.startsWith("{")) {
+        return static_cast<uint16_t>(constrain(value.toInt(), 0, 5000));
+    }
+
+    JsonDocument doc;
+    if (deserializeJson(doc, value) != DeserializationError::Ok) {
+        return fallback;
+    }
+
+    if (!doc["transitionMs"].isNull()) {
+        return static_cast<uint16_t>(constrain(doc["transitionMs"].as<int>(), 0, 5000));
+    }
+    if (!doc["transition_ms"].isNull()) {
+        return static_cast<uint16_t>(constrain(doc["transition_ms"].as<int>(), 0, 5000));
+    }
+    if (!doc["transition"].isNull()) {
+        const float seconds = doc["transition"].as<float>();
+        return static_cast<uint16_t>(constrain(static_cast<int>((seconds * 1000.0f) + 0.5f), 0, 5000));
+    }
+
+    return fallback;
+}
+
 bool parsePowerPayload(const String& payload, bool defaultValue) {
     if (!payload.startsWith("{")) {
         return !(payload.equalsIgnoreCase("0") || payload.equalsIgnoreCase("false") || payload.equalsIgnoreCase("off"));
@@ -299,6 +329,7 @@ void MqttManager::handleConnected(bool sessionPresent) {
     client_.subscribe(HaBridge::commandTopic(settings_, "volume").c_str(), 1);
     client_.subscribe(HaBridge::commandTopic(settings_, "power").c_str(), 1);
     client_.subscribe(HaBridge::commandTopic(settings_, "effect").c_str(), 1);
+    client_.subscribe(HaBridge::commandTopic(settings_, "transition_ms").c_str(), 1);
     client_.subscribe(HaBridge::commandTopic(settings_, "color").c_str(), 1);
     client_.subscribe(HaBridge::colorCommandTopic(settings_).c_str(), 1);
     client_.subscribe(HaBridge::pixelsCommandTopic(settings_).c_str(), 1);
@@ -394,6 +425,13 @@ void MqttManager::handleMessage(char* topic, char* payload, AsyncMqttClientMessa
     if (topicValue == HaBridge::commandTopic(settings_, "effect")) {
         command.action = "effect";
         command.mediaType = normalizeEffectName(payloadValue);
+        commandHandler_(command);
+        return;
+    }
+
+    if (topicValue == HaBridge::commandTopic(settings_, "transition_ms")) {
+        command.action = "transition";
+        command.transitionMs = parseTransitionMs(payloadValue, settings_.light.colorTransitionMs);
         commandHandler_(command);
         return;
     }
@@ -505,6 +543,7 @@ void MqttManager::publishState() {
     playback["source"] = snapshot.playback.source;
     playback["brightness"] = publishedBrightness;
     playback["volumePercent"] = publishedBrightness;
+    playback["transitionMs"] = snapshot.playback.transitionMs;
     playback["powerEnabled"] = snapshot.playback.powerEnabled;
     publishJson(HaBridge::playbackStateTopic(settings_), playback, true);
 
@@ -523,10 +562,11 @@ void MqttManager::publishState() {
     battery["rawAdc"] = snapshot.battery.rawAdc;
     publishJson(HaBridge::batteryStateTopic(settings_), battery, true);
 
-    client_.publish(HaBridge::lightPowerStateTopic(settings_).c_str(), 1, true, snapshot.playback.powerEnabled ? "ON" : "OFF");
-    client_.publish(HaBridge::lightEffectStateTopic(settings_).c_str(), 1, true, snapshot.playback.type.c_str());
-    client_.publish((settings_.mqtt.baseTopic + "/state/brightness").c_str(), 1, true, String(publishedBrightness).c_str());
     client_.publish(HaBridge::colorStateTopic(settings_).c_str(), 1, true, hexToRgbCsv(snapshot.playback.primaryColor).c_str());
+    client_.publish((settings_.mqtt.baseTopic + "/state/brightness").c_str(), 1, true, String(publishedBrightness).c_str());
+    client_.publish(HaBridge::lightEffectStateTopic(settings_).c_str(), 1, true, snapshot.playback.type.c_str());
+    client_.publish(HaBridge::lightTransitionStateTopic(settings_).c_str(), 1, true, String(snapshot.playback.transitionMs).c_str());
+    client_.publish(HaBridge::lightPowerStateTopic(settings_).c_str(), 1, true, snapshot.playback.powerEnabled ? "ON" : "OFF");
 #ifdef APP_ENABLE_HACS_MQTT
     client_.publish(HaBridge::hacsMediaPlayerStateTopic(settings_, "state").c_str(), 1, true, normalizedHacsPlaybackState(snapshot.playback.state).c_str());
     client_.publish(HaBridge::hacsMediaPlayerStateTopic(settings_, "title").c_str(), 1, true, snapshot.playback.title.c_str());
@@ -566,6 +606,9 @@ void MqttManager::publishDiscovery() {
     client_.publish(
         HaBridge::discoveryTopic(settings_, "number", "volume").c_str(), 1, true,
         HaBridge::discoveryPayloadNumber(settings_, "volume", "Light Brightness", (settings_.mqtt.baseTopic + "/state/brightness").c_str(), HaBridge::commandTopic(settings_, "brightness").c_str(), 0, 100, 1, "%", "mdi:brightness-6", configurationUrl).c_str());
+    client_.publish(
+        HaBridge::discoveryTopic(settings_, "number", "light_transition_ms").c_str(), 1, true,
+        HaBridge::discoveryPayloadNumber(settings_, "light_transition_ms", "Light Transition", HaBridge::lightTransitionStateTopic(settings_).c_str(), HaBridge::commandTopic(settings_, "transition_ms").c_str(), 0, 5000, 50, "ms", "mdi:timer-outline", configurationUrl).c_str());
     client_.publish(
         HaBridge::discoveryTopic(settings_, "button", "stop").c_str(), 1, true,
         HaBridge::discoveryPayloadButton(settings_, "stop", "Turn Light Off", HaBridge::commandTopic(settings_, "stop").c_str(), "stop", "mdi:power", configurationUrl).c_str());

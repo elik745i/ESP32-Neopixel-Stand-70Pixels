@@ -25,6 +25,7 @@ struct PlaybackSnapshot {
     String primaryColor = "#FFFFFF";
     String source = "none";
     uint8_t volumePercent = 0;
+    uint16_t transitionMs = 1000;
     bool powerEnabled = false;
 };
 
@@ -78,7 +79,7 @@ class AppState {
     void setWiFiStatus(bool connected, bool apMode, const String& ssid, const IPAddress& ip, int32_t rssi, const String& apSsid);
     void setMqttConnected(bool connected);
     void setMqttDetail(const String& detail);
-    void setPlayback(const String& state, const String& type, const String& title, const String& url, const String& primaryColor, const String& source, uint8_t volumePercent, bool powerEnabled);
+    void setPlayback(const String& state, const String& type, const String& title, const String& url, const String& primaryColor, const String& source, uint8_t volumePercent, uint16_t transitionMs, bool powerEnabled);
     void setBattery(float voltage, float rawAdcVoltage, uint16_t rawAdc);
     void setOta(bool busy, bool updateAvailable, const String& latestVersion, const String& lastResult, const String& lastError,
                 const String& phase = "", uint8_t progressPercent = 0);
