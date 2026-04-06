@@ -203,6 +203,7 @@ constexpr float kBatteryPercentEmptyVoltage = 3.2f;
 constexpr float kBatteryPercentFullVoltage = 4.2f;
 constexpr unsigned long kLowBatteryWakeWindowMs = 30000UL;
 constexpr unsigned long kMqttLightApplyDebounceMs = 90UL;
+constexpr unsigned long kMqttLightPowerOnDebounceMs = 180UL;
 constexpr unsigned long kMqttStateDebounceMs = 120UL;
 constexpr unsigned long kVolumePersistDelayMs = 750UL;
 constexpr unsigned long kWifiConnectedPreviewMs = 6000UL;
@@ -560,14 +561,19 @@ void handleMqttCommand(const PlaybackCommand& command) {
     } else if (command.action == "power") {
         if (!command.powerEnabled) {
             cancelPendingPlaybackActivation();
-        }
-        settings->light.powerEnabled = command.powerEnabled;
-        if (command.powerEnabled) {
-            lightPlayer->setPowerEnabled(true);
-        } else {
+            settings->light.powerEnabled = false;
             lightPlayer->stop();
+            settingsManager->save(*settings);
+        } else {
+            settings->light.powerEnabled = true;
+            scheduleMqttLightApply(
+                settings->light.primaryColor,
+                settings->light.secondaryColor,
+                String(settings->light.effectIndex),
+                command.source,
+                kMqttLightPowerOnDebounceMs);
+            publishImmediateState = false;
         }
-        settingsManager->save(*settings);
     } else if (command.action == "effect") {
         settings->light.effectIndex = lightPlayer->findEffectIndex(command.mediaType.isEmpty() ? command.label : command.mediaType);
         scheduleMqttLightApply(settings->light.primaryColor, settings->light.secondaryColor, String(settings->light.effectIndex), command.source);

@@ -258,7 +258,7 @@ Typical release flow for this repository:
 
 Current firmware version in this working tree:
 
-- `v0.1.7`
+- `v0.1.8`
 
 Recent changes included in this version:
 
@@ -270,6 +270,7 @@ Recent changes included in this version:
 - publish effect and color helper entity state so Home Assistant no longer shows those values as `unknown`
 - add smooth configurable light color transitions with optimistic MQTT state updates for Home Assistant
 - expose light transition time in the web Light tab and over MQTT for Home Assistant automation
+- prevent Home Assistant color-picker updates from briefly flashing the previous static color before transitioning to the selected color
 - add persisted AP mode and STA-connect Wi-Fi effect selectors on the Light tab and wire them into the existing status-effect behavior
 
 Current default hardware profile in this working tree:
